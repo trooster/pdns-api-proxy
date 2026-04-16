@@ -61,10 +61,14 @@
             {% set lu = last_used.get(key.id) %}
             {{ lu.strftime('%d-%m-%Y %H:%M') if lu else '—' }}
           </td>
-          <td>
+          <td class="text-nowrap">
             <a href="{{ url_for('admin_ui.key_detail', key_id=key.id) }}"
-               class="btn btn-sm btn-outline-secondary">
+               class="btn btn-sm btn-outline-secondary me-1" title="Bewerken">
               <i class="bi bi-pencil"></i>
+            </a>
+            <a href="{{ url_for('admin_ui.key_audit', key_id=key.id) }}"
+               class="btn btn-sm btn-outline-secondary" title="Audit log">
+              <i class="bi bi-journal-text"></i>
             </a>
           </td>
         </tr>
