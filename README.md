@@ -82,6 +82,76 @@ python run.py          # starts Flask dev server on http://127.0.0.1:5000
 gunicorn -w 4 "app:create_app()"
 ```
 
+## Production deployment with Docker + Caddy (Let's Encrypt)
+
+The included `docker-compose.yml` runs the proxy behind [Caddy](https://caddyserver.com/), which automatically obtains and renews a Let's Encrypt TLS certificate.
+
+### Prerequisites
+
+- A server reachable from the internet with ports **80** and **443** open.
+- A DNS A-record pointing your domain (e.g. `proxy.example.com`) to that server's IP address.
+- Docker and Docker Compose installed on the server.
+
+### Steps
+
+**1. Clone the repo and copy the env file**
+
+```bash
+git clone <repo-url>
+cd pdns-api-proxy
+cp .env.example .env
+```
+
+**2. Fill in `.env`**
+
+```dotenv
+DATABASE_URL=mysql+pymysql://pdnsadmin:password@db-host:3306/powerdnsadmin
+PDNS_API_URL=http://pdns-host:8081
+PDNS_API_KEY=your-pdns-api-key
+SECRET_KEY=a-long-random-string   # generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
+DOMAIN=proxy.example.com          # the public domain Caddy will request a certificate for
+```
+
+`PROXY_COUNT` is hardcoded to `1` in `docker-compose.yml` (Caddy is the single trusted proxy).
+
+**3. Run database migrations**
+
+```bash
+# Either directly with Python (if you have a local venv):
+source venv/bin/activate
+python migrate.py up
+
+# Or via the container (migrations run against DATABASE_URL from .env):
+docker compose run --rm pdns-api-proxy python migrate.py up
+```
+
+**4. Start the stack**
+
+```bash
+docker compose up -d
+```
+
+Caddy immediately requests a certificate from Let's Encrypt via the ACME HTTP-01 challenge (uses port 80). After a few seconds the proxy is available at `https://proxy.example.com`.
+
+**5. Verify**
+
+```bash
+curl https://proxy.example.com/ping
+# → {"status": "ok"}
+```
+
+### Certificate renewal
+
+Caddy renews certificates automatically in the background. Certificates and ACME account data are stored in the `caddy_data` Docker volume — do not delete that volume.
+
+### Updates
+
+```bash
+git pull
+docker compose build
+docker compose up -d
+```
+
 ## Environment Variables
 
 | Variable | Description | Example |
@@ -91,6 +161,7 @@ gunicorn -w 4 "app:create_app()"
 | `PDNS_API_KEY` | PowerDNS internal API key | `changeme` |
 | `SECRET_KEY` | Flask session secret | (random string) |
 | `PROXY_COUNT` | Number of trusted reverse proxies in front of this app (used for `X-Forwarded-For`). Set to `0` if the app is exposed directly without a proxy. Default: `1` | `1` |
+| `DOMAIN` | Public hostname used by Caddy to obtain a Let's Encrypt certificate (Docker production only) | `proxy.example.com` |
 
 ## API Reference
 

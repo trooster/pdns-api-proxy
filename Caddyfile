@@ -1,0 +1,7 @@
+{$DOMAIN} {
+    reverse_proxy pdns-api-proxy:5000
+
+    log {
+        output stderr
+    }
+}
