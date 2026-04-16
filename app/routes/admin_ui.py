@@ -78,11 +78,16 @@ def dashboard():
             domain_counts[account_id] = count
 
     last_used = {}
+    request_counts = {}
     if key_ids:
-        for key_id, ts in db.session.query(AuditLog.api_key_id, func.max(AuditLog.timestamp))\
+        for key_id, ts, cnt in db.session.query(
+                AuditLog.api_key_id,
+                func.max(AuditLog.timestamp),
+                func.count(AuditLog.id))\
                 .filter(AuditLog.api_key_id.in_(key_ids))\
                 .group_by(AuditLog.api_key_id):
             last_used[key_id] = ts
+            request_counts[key_id] = cnt
 
     ip_counts = {}
     if key_ids:
@@ -92,7 +97,8 @@ def dashboard():
             ip_counts[key_id] = count
 
     return render_template("admin/dashboard.html", keys=keys, accounts=accounts,
-                           domain_counts=domain_counts, last_used=last_used, ip_counts=ip_counts)
+                           domain_counts=domain_counts, last_used=last_used,
+                           ip_counts=ip_counts, request_counts=request_counts)
 
 
 # ── Create key ────────────────────────────────────────────────────────────────

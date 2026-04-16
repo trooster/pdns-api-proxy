@@ -21,6 +21,7 @@
           <th>Zones</th>
           <th>Status</th>
           <th>Aangemaakt</th>
+          <th>Requests</th>
           <th>Laatst gebruikt</th>
           <th></th>
         </tr>
@@ -56,6 +57,9 @@
           </td>
           <td class="text-muted small">
             {{ key.created_at.strftime('%d-%m-%Y %H:%M') if key.created_at else '—' }}
+          </td>
+          <td class="text-center">
+            {{ request_counts.get(key.id, 0) }}
           </td>
           <td class="text-muted small">
             {% set lu = last_used.get(key.id) %}
