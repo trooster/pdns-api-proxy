@@ -3,6 +3,7 @@ from app.services.proxy_service import ProxyService
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.routes.proxy_decorators import require_domain_access
+from app.models.pdns_admin import PdnsDomain
 
 bp = Blueprint("proxy", __name__, url_prefix="/api/v1")
 
@@ -47,11 +48,19 @@ def list_zones():
         return jsonify({"error": error}), status
 
     allowed_domain_ids = AuthService.get_allowed_domain_ids(g.api_key.id)
+    allowed_domains = PdnsDomain.query.filter(PdnsDomain.id.in_(allowed_domain_ids)).all()
+    # PDNS zone IDs hebben een trailing dot ("example.com."); PdnsDomain.name heeft die niet.
+    # Normaliseer beide kanten: lowercase, zonder trailing dot.
+    allowed_names = {d.name.rstrip(".").lower() for d in allowed_domains}
+
+    def _zone_allowed(zone):
+        zone_id = zone.get("id", "").rstrip(".").lower()
+        return zone_id in allowed_names
 
     if isinstance(data, dict) and "zones" in data:
-        data["zones"] = [z for z in data["zones"] if z.get("id") in allowed_domain_ids]
+        data["zones"] = [z for z in data["zones"] if _zone_allowed(z)]
     elif isinstance(data, list):
-        data = [z for z in data if z.get("id") in allowed_domain_ids]
+        data = [z for z in data if _zone_allowed(z)]
 
     AuditService.log(
         api_key_id=g.api_key.id,

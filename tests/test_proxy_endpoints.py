@@ -3,6 +3,7 @@ import hashlib
 from unittest.mock import patch, MagicMock
 from app import create_app, db
 from app.models.api_key import ApiKey, ApiKeyDomainAllowlist
+from app.models.pdns_admin import PdnsDomain
 
 
 @pytest.fixture
@@ -26,8 +27,11 @@ def client(app):
 
 @pytest.fixture
 def api_key_with_zone(app):
-    """Create an API key with access to zone 42."""
+    """Create an API key with access to zone 42 (example.com)."""
     with app.app_context():
+        domain = PdnsDomain(id=42, name="example.com", type="NATIVE")
+        db.session.add(domain)
+
         key_str = "pda_live_testkey00000000000000000"
         key = ApiKey(
             key_hash=hashlib.sha256(key_str.encode()).hexdigest(),
@@ -65,10 +69,12 @@ def test_zones_invalid_key(client):
 
 
 def test_list_zones_filters_by_allowlist(client, api_key_with_zone):
-    """list_zones returns only zones in the API key's allowlist."""
+    """list_zones returns only zones in the API key's allowlist.
+    PDNS zone IDs are zone names with trailing dot (e.g. "example.com.").
+    """
     mock_zones = [
-        {"id": 42, "name": "example.com."},
-        {"id": 99, "name": "other.com."},
+        {"id": "example.com.", "name": "example.com."},
+        {"id": "other.com.", "name": "other.com."},
     ]
     with patch("requests.request") as mock_req:
         mock_resp = MagicMock()
@@ -81,7 +87,7 @@ def test_list_zones_filters_by_allowlist(client, api_key_with_zone):
     assert resp.status_code == 200
     data = resp.get_json()
     assert len(data) == 1
-    assert data[0]["id"] == 42
+    assert data[0]["id"] == "example.com."
 
 
 def test_get_zone_denied_for_other_zone(client, api_key_with_zone):
