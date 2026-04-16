@@ -349,3 +349,7 @@ Tests use SQLite in-memory via a `TestConfig` class. The integration test (`test
 1. Never edit a committed migration file.
 2. Add a new numbered pair: `migrations/002_description.up.sql` + `migrations/002_description.down.sql`.
 3. Every `.up.sql` must have a corresponding `.down.sql` rollback.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
