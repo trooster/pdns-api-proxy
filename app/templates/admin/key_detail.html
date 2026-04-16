@@ -170,6 +170,7 @@
           {% endif %}
         </form>
 
+        {% if current_user.is_admin %}
         <form method="POST" action="{{ url_for('admin_ui.key_delete', key_id=key.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <button type="submit" class="btn btn-outline-danger w-100"
@@ -177,6 +178,7 @@
             <i class="bi bi-trash me-1"></i>Key verwijderen
           </button>
         </form>
+        {% endif %}
 
       </div>
     </div>

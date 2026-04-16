@@ -9,7 +9,12 @@
   </a>
 </div>
 
-{% if keys %}
+{% if not has_accounts and not current_user.is_admin %}
+<div class="alert alert-warning">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  Je account is nog niet gekoppeld aan een PowerDNS-Admin account. Neem contact op met de beheerder.
+</div>
+{% elif keys %}
 <div class="card shadow-sm">
   <div class="table-responsive">
     <table class="table table-hover mb-0">
@@ -81,7 +86,7 @@
     </table>
   </div>
 </div>
-{% else %}
+{% elif has_accounts %}
 <div class="text-center py-5 text-muted">
   <i class="bi bi-key fs-1 d-block mb-2"></i>
   Nog geen API keys aangemaakt.

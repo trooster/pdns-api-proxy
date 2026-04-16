@@ -16,9 +16,13 @@ def app():
     with flask_app.app_context():
         db.create_all()
 
-        # Maak een admin rol + gebruiker aan voor authenticatie
+        # Admin role + user
         role = PdnsRole(name="Administrator", description="Admin")
         db.session.add(role)
+
+        # Regular (non-admin) role + user
+        user_role = PdnsRole(name="User", description="Regular user")
+        db.session.add(user_role)
         db.session.flush()
 
         pw_hash = bcrypt.hashpw(b"testpass", bcrypt.gensalt()).decode()
@@ -32,6 +36,17 @@ def app():
             confirmed=1,
         )
         db.session.add(admin)
+
+        regular = PdnsUser(
+            username="testuser",
+            password=pw_hash,
+            firstname="Test",
+            lastname="User",
+            email="user@test.local",
+            role_id=user_role.id,
+            confirmed=1,
+        )
+        db.session.add(regular)
         db.session.commit()
 
         yield flask_app
@@ -46,7 +61,7 @@ def client(app):
 @pytest.fixture
 def admin_client(client):
     """Test client ingelogd als Administrator."""
-    client.post("/admin/login", data={
+    client.post("/login", data={
         "username": "testadmin",
         "password": "testpass",
         "csrf_token": _get_csrf(client),
@@ -56,7 +71,7 @@ def admin_client(client):
 
 def _get_csrf(client):
     """Haal CSRF token op van de login pagina."""
-    resp = client.get("/admin/login")
+    resp = client.get("/login")
     # Extraheer csrf_token uit de session via de cookie
     with client.session_transaction() as sess:
         return sess.get("csrf_token", "")
@@ -163,3 +178,33 @@ def test_audit_log_empty(admin_client):
     data = resp.get_json()
     assert data["logs"] == []
     assert data["total"] == 0
+
+
+# ── Regular user cannot access admin API ──────────────────────────────────────
+
+@pytest.fixture
+def user_client(client):
+    """Test client ingelogd als gewone gebruiker (geen Administrator)."""
+    client.post("/login", data={
+        "username": "testuser",
+        "password": "testpass",
+        "csrf_token": _get_csrf(client),
+    }, follow_redirects=True)
+    return client
+
+
+def test_regular_user_cannot_access_admin_api(user_client):
+    """Gewone gebruiker mag de admin JSON API niet gebruiken."""
+    resp = user_client.get("/admin/api-keys")
+    assert resp.status_code == 403
+
+
+def test_regular_user_cannot_create_key_via_admin_api(user_client):
+    resp = user_client.post("/admin/api-keys", json={"account_id": 1, "description": "x"})
+    assert resp.status_code == 403
+
+
+def test_regular_user_can_access_dashboard(user_client):
+    """Gewone gebruiker mag het dashboard zien (scoped op eigen accounts)."""
+    resp = user_client.get("/")
+    assert resp.status_code == 200

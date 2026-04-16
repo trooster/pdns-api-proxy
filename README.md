@@ -13,8 +13,9 @@ The proxy shares the existing PowerDNS-Admin MySQL database and adds three custo
 - **Account-based zone isolation** — each key is bound to a PowerDNS-Admin account; requests to zones outside that account are rejected with 403
 - **IP allowlist** — each key can be restricted to one or more IP addresses or CIDR ranges; an empty allowlist blocks all access
 - **Audit log** — every proxied request is written to the `audit_logs` table
-- **Admin UI** — HTML panel at `/admin/` (Flask-Login + TOTP 2FA, Administrator role required)
-- **Admin REST API** — JSON endpoints at `/admin/api-keys/` for programmatic key management
+- **Role-aware UI** — HTML panel at `/` shared by all users; Administrators see all keys and can delete them, regular users only see and manage keys for their own accounts
+- **Admin REST API** — JSON endpoints at `/admin/api-keys/` for programmatic key management (Administrator only)
+- **Shared login** — all PowerDNS-Admin users log in at `/login` with optional TOTP 2FA
 
 ## Architecture
 
@@ -179,21 +180,24 @@ curl -X PUT \
 | `403` | Zone does not belong to this key's account; or blocked endpoint (zone creation/deletion, config, statistics, cryptokeys, metadata, notify, rectify) |
 | `502` | PowerDNS API unreachable or timed out |
 
-## Admin UI
+## Web UI
 
-Available at `/admin/` — requires a PowerDNS-Admin user with the **Administrator** role and a configured TOTP authenticator.
+Available at `/` for all PowerDNS-Admin users. Login at `/login`. The interface adapts based on role:
 
-**Features:**
-- Dashboard with all API keys, last-used timestamps, and domain counts
-- Create / revoke / delete API keys
-- Manage IP allowlist per key (enter as `192.168.1.10` or `10.0.0.0/24`; bare IPs get `/32` automatically)
-- Per-key audit log viewer
+| Feature | Regular user | Administrator |
+|---|---|---|
+| View keys | Own accounts only | All accounts |
+| Create keys | Own accounts only | Any account |
+| Revoke / activate | Own keys only | Any key |
+| Delete keys | — | Yes |
+| Audit log | Own keys only | Any key |
+| IP allowlist management | Own keys only | Any key |
 
-**Login:** `/admin/login`
+Users are assigned to accounts via the `account_user` table in PowerDNS-Admin.
 
 ## Admin REST API
 
-The admin REST API (`/admin/api-keys/*`) requires an active Flask-Login session with the **Administrator** role (same session as the admin UI). Log in at `/admin/login` first.
+The admin REST API (`/admin/api-keys/*`) requires an active Flask-Login session with the **Administrator** role (same session as the admin UI). Log in at `/login` first.
 
 | Method | Path | Description |
 |---|---|---|
@@ -208,11 +212,11 @@ The admin REST API (`/admin/api-keys/*`) requires an active Flask-Login session 
 
 ### Create key via REST API
 
-Requires an active admin session cookie (log in at `/admin/login` first):
+Requires an active admin session cookie (log in at `/login` first):
 
 ```bash
 # Log in and save the session cookie
-curl -c cookies.txt -X POST http://localhost:5000/admin/login \
+curl -c cookies.txt -X POST http://localhost:5000/login \
      -d "username=admin&password=secret&csrf_token=<token>"
 
 # Create a key using the session cookie

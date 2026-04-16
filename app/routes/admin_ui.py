@@ -6,10 +6,37 @@ from sqlalchemy import func
 from app import db
 from app.models.api_key import ApiKey, ApiKeyIpAllowlist
 from app.models.audit_log import AuditLog
-from app.models.pdns_admin import PdnsAccount, PdnsDomain, PdnsUser
+from app.models.pdns_admin import PdnsAccount, PdnsDomain, PdnsUser, PdnsAccountUser
 from app.services.auth_service import AuthService
 
 bp = Blueprint("admin_ui", __name__)
+
+
+# ── Access helpers ─────────────────────────────────────────────────────────────
+
+def _get_accessible_accounts():
+    """Admins zien alle accounts; gewone gebruikers alleen hun eigen accounts."""
+    if current_user.is_admin:
+        return PdnsAccount.query.order_by(PdnsAccount.name).all()
+    account_ids = [
+        row[0] for row in
+        db.session.query(PdnsAccountUser.account_id)
+        .filter(PdnsAccountUser.user_id == current_user.id)
+        .all()
+    ]
+    if not account_ids:
+        return []
+    return PdnsAccount.query.filter(PdnsAccount.id.in_(account_ids)).order_by(PdnsAccount.name).all()
+
+
+def _check_key_access(key_id):
+    """Geeft de key terug. Voor niet-admins: abort(403) als de key niet bij hun account hoort."""
+    key = db.get_or_404(ApiKey, key_id)
+    if not current_user.is_admin:
+        accessible_ids = [a.id for a in _get_accessible_accounts()]
+        if key.account_id not in accessible_ids:
+            abort(403)
+    return key
 
 
 def _require_admin(f):
@@ -58,17 +85,18 @@ def _parse_ip_entry(ip_line: str):
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
-@bp.route("/admin/")
-@bp.route("/admin")
+@bp.route("/")
 @login_required
-@_require_admin
 def dashboard():
-    keys = ApiKey.query.order_by(ApiKey.created_at.desc()).all()
+    accounts = _get_accessible_accounts()
+    account_ids = [a.id for a in accounts]
 
-    account_ids = {k.account_id for k in keys}
+    if account_ids:
+        keys = ApiKey.query.filter(ApiKey.account_id.in_(account_ids))\
+            .order_by(ApiKey.created_at.desc()).all()
+    else:
+        keys = []
     key_ids = [k.id for k in keys]
-
-    accounts = {a.id: a for a in PdnsAccount.query.filter(PdnsAccount.id.in_(account_ids)).all()} if account_ids else {}
 
     domain_counts = {}
     if account_ids:
@@ -96,18 +124,18 @@ def dashboard():
                 .group_by(ApiKeyIpAllowlist.api_key_id):
             ip_counts[key_id] = count
 
-    return render_template("admin/dashboard.html", keys=keys, accounts=accounts,
+    return render_template("admin/dashboard.html", keys=keys, accounts={a.id: a for a in accounts},
                            domain_counts=domain_counts, last_used=last_used,
-                           ip_counts=ip_counts, request_counts=request_counts)
+                           ip_counts=ip_counts, request_counts=request_counts,
+                           has_accounts=bool(account_ids))
 
 
 # ── Create key ────────────────────────────────────────────────────────────────
 
-@bp.route("/admin/keys/new", methods=["GET", "POST"])
+@bp.route("/keys/new", methods=["GET", "POST"])
 @login_required
-@_require_admin
 def key_create():
-    accounts = PdnsAccount.query.order_by(PdnsAccount.name).all()
+    accounts = _get_accessible_accounts()
     csrf = _csrf_token()
 
     if request.method == "POST":
@@ -115,15 +143,20 @@ def key_create():
             return render_template("admin/key_create.html", accounts=accounts, csrf=csrf)
 
         description = request.form.get("description", "").strip()
-        account_id = request.form.get("account_id", "").strip()
+        account_id_str = request.form.get("account_id", "").strip()
         ip_addresses = [
             ip.strip() for ip in request.form.get("ip_addresses", "").splitlines()
             if ip.strip()
         ]
 
-        if not account_id or not account_id.isdigit():
+        if not account_id_str or not account_id_str.isdigit():
             flash("Selecteer een account.", "danger")
             return render_template("admin/key_create.html", accounts=accounts, csrf=csrf)
+
+        account_id = int(account_id_str)
+        # Security: verify the selected account is accessible to this user
+        if account_id not in [a.id for a in accounts]:
+            abort(403)
 
         full_key, key_hash, key_prefix = AuthService.generate_api_key()
 
@@ -131,7 +164,7 @@ def key_create():
             key_hash=key_hash,
             key_prefix=key_prefix,
             description=description,
-            account_id=int(account_id),
+            account_id=account_id,
             created_by=current_user.id,
         )
         db.session.add(new_key)
@@ -161,10 +194,13 @@ def key_create():
 
 # ── Account domains (AJAX) ────────────────────────────────────────────────────
 
-@bp.route("/admin/accounts/<int:account_id>/domains")
+@bp.route("/accounts/<int:account_id>/domains")
 @login_required
-@_require_admin
 def account_domains(account_id):
+    if not current_user.is_admin:
+        accessible_ids = [a.id for a in _get_accessible_accounts()]
+        if account_id not in accessible_ids:
+            abort(403)
     account = PdnsAccount.query.get_or_404(account_id)
     domains = [{"id": d.id, "name": d.name} for d in account.domains.order_by(PdnsDomain.name)]
     return jsonify({"account": account.name, "domains": domains})
@@ -172,15 +208,14 @@ def account_domains(account_id):
 
 # ── Key detail / edit ─────────────────────────────────────────────────────────
 
-@bp.route("/admin/keys/<int:key_id>")
+@bp.route("/keys/<int:key_id>")
 @login_required
-@_require_admin
 def key_detail(key_id):
-    key = db.get_or_404(ApiKey, key_id)
-    account = PdnsAccount.query.get(key.account_id)
+    key = _check_key_access(key_id)
+    account = db.session.get(PdnsAccount, key.account_id)
     ips = key.ip_allowlist.all()
     domains = account.domains.order_by(PdnsDomain.name).all() if account else []
-    created_by_user = PdnsUser.query.get(key.created_by) if key.created_by else None
+    created_by_user = db.session.get(PdnsUser, key.created_by) if key.created_by else None
     csrf = _csrf_token()
     return render_template(
         "admin/key_detail.html",
@@ -193,13 +228,12 @@ def key_detail(key_id):
     )
 
 
-@bp.route("/admin/keys/<int:key_id>/toggle", methods=["POST"])
+@bp.route("/keys/<int:key_id>/toggle", methods=["POST"])
 @login_required
-@_require_admin
 def key_toggle(key_id):
     if not _check_csrf():
         return redirect(url_for("admin_ui.key_detail", key_id=key_id))
-    key = db.get_or_404(ApiKey, key_id)
+    key = _check_key_access(key_id)
     key.is_active = not key.is_active
     db.session.commit()
     state = "geactiveerd" if key.is_active else "ingetrokken"
@@ -207,20 +241,19 @@ def key_toggle(key_id):
     return redirect(url_for("admin_ui.key_detail", key_id=key_id))
 
 
-@bp.route("/admin/keys/<int:key_id>/edit", methods=["POST"])
+@bp.route("/keys/<int:key_id>/edit", methods=["POST"])
 @login_required
-@_require_admin
 def key_edit(key_id):
     if not _check_csrf():
         return redirect(url_for("admin_ui.key_detail", key_id=key_id))
-    key = db.get_or_404(ApiKey, key_id)
+    key = _check_key_access(key_id)
     key.description = request.form.get("description", "").strip()
     db.session.commit()
     flash("Omschrijving opgeslagen.", "success")
     return redirect(url_for("admin_ui.key_detail", key_id=key_id))
 
 
-@bp.route("/admin/keys/<int:key_id>/delete", methods=["POST"])
+@bp.route("/keys/<int:key_id>/delete", methods=["POST"])
 @login_required
 @_require_admin
 def key_delete(key_id):
@@ -236,13 +269,12 @@ def key_delete(key_id):
 
 # ── IP allowlist ──────────────────────────────────────────────────────────────
 
-@bp.route("/admin/keys/<int:key_id>/ips/add", methods=["POST"])
+@bp.route("/keys/<int:key_id>/ips/add", methods=["POST"])
 @login_required
-@_require_admin
 def ip_add(key_id):
     if not _check_csrf():
         return redirect(url_for("admin_ui.key_detail", key_id=key_id))
-    db.get_or_404(ApiKey, key_id)
+    _check_key_access(key_id)
     ip_cidr = request.form.get("ip_cidr", "").strip()
     if not ip_cidr:
         flash("Vul een IP adres in.", "danger")
@@ -262,12 +294,12 @@ def ip_add(key_id):
     return redirect(url_for("admin_ui.key_detail", key_id=key_id))
 
 
-@bp.route("/admin/keys/<int:key_id>/ips/<int:ip_id>/remove", methods=["POST"])
+@bp.route("/keys/<int:key_id>/ips/<int:ip_id>/remove", methods=["POST"])
 @login_required
-@_require_admin
 def ip_remove(key_id, ip_id):
     if not _check_csrf():
         return redirect(url_for("admin_ui.key_detail", key_id=key_id))
+    _check_key_access(key_id)
     entry = ApiKeyIpAllowlist.query.filter_by(id=ip_id, api_key_id=key_id).first_or_404()
     db.session.delete(entry)
     db.session.commit()
@@ -277,11 +309,10 @@ def ip_remove(key_id, ip_id):
 
 # ── Audit log ─────────────────────────────────────────────────────────────────
 
-@bp.route("/admin/keys/<int:key_id>/audit")
+@bp.route("/keys/<int:key_id>/audit")
 @login_required
-@_require_admin
 def key_audit(key_id):
-    key = db.get_or_404(ApiKey, key_id)
+    key = _check_key_access(key_id)
     page = request.args.get("page", 1, type=int)
     logs = AuditLog.query.filter_by(api_key_id=key_id)\
         .order_by(AuditLog.timestamp.desc())\

@@ -28,7 +28,7 @@ def _check_csrf():
     return True
 
 
-@bp.route("/admin/login", methods=["GET", "POST"])
+@bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("admin_ui.dashboard"))
@@ -48,10 +48,6 @@ def login():
             flash("Ongeldige gebruikersnaam of wachtwoord.", "danger")
             return render_template("admin/login.html", csrf=csrf)
 
-        if not user.is_admin:
-            flash("Je hebt geen beheerdersrechten.", "danger")
-            return render_template("admin/login.html", csrf=csrf)
-
         if user.has_2fa:
             # Store user id temporarily; complete login after 2FA
             session["pending_user_id"] = user.id
@@ -66,7 +62,7 @@ def login():
     return render_template("admin/login.html", csrf=csrf)
 
 
-@bp.route("/admin/login/2fa", methods=["GET", "POST"])
+@bp.route("/login/2fa", methods=["GET", "POST"])
 def login_2fa():
     pending_id = session.get("pending_user_id")
     if not pending_id:
@@ -92,7 +88,7 @@ def login_2fa():
     return render_template("admin/login_2fa.html", csrf=csrf)
 
 
-@bp.route("/admin/logout")
+@bp.route("/logout")
 @login_required
 def logout():
     logout_user()

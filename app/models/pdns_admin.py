@@ -76,3 +76,12 @@ class PdnsDomain(db.Model):
     name = db.Column(db.String(255))
     type = db.Column(db.String(6))
     account_id = db.Column(db.Integer, db.ForeignKey("account.id"), nullable=True)
+
+
+class PdnsAccountUser(db.Model):
+    """PowerDNS-Admin account_user table — koppelt gebruikers aan accounts."""
+    __tablename__ = "account_user"
+
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("account.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
