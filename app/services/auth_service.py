@@ -51,10 +51,14 @@ class AuthService:
         return True, key_obj, ""
 
     @staticmethod
-    def check_domain_access(account_id: int, domain_id: int) -> bool:
-        """Check of het domein gekoppeld is aan het account van de API key."""
+    def check_domain_access(account_id: int, zone_id: str) -> bool:
+        """
+        Check of de zone gekoppeld is aan het account van de API key.
+        zone_id is de PDNS zone-ID, bijv. 'example.com.' (met trailing dot).
+        """
         from app.models.pdns_admin import PdnsDomain
-        domain = PdnsDomain.query.filter_by(id=domain_id, account_id=account_id).first()
+        zone_name = zone_id.rstrip(".").lower()
+        domain = PdnsDomain.query.filter_by(name=zone_name, account_id=account_id).first()
         return domain is not None
 
     @staticmethod

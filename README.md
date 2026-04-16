@@ -2,10 +2,13 @@
 
 A Flask 3.x API proxy that sits between customer software and a [PowerDNS Authoritative Server](https://www.powerdns.com/auth.html). Customers authenticate with scoped API keys and can only access the DNS zones that belong to their PowerDNS-Admin **account**.
 
+The proxy exposes the **same URL structure as the PowerDNS REST API** (`/api/v1/servers/<server_id>/zones/…`), so existing clients (PowerDNS-Admin, Terraform, custom scripts) can point at the proxy without changing their code. Zones outside the key's account are filtered out or rejected with 403.
+
 The proxy shares the existing PowerDNS-Admin MySQL database and adds three custom tables (`api_keys`, `api_key_ip_allowlist`, `audit_logs`).
 
 ## Features
 
+- **Drop-in PowerDNS API replacement** — same URL structure as the real PDNS API; clients need no changes
 - **API key authentication** — keys are stored only as SHA-256 hashes; the full key is shown exactly once at creation time
 - **Account-based zone isolation** — each key is bound to a PowerDNS-Admin account; requests to zones outside that account are rejected with 403
 - **IP allowlist** — each key can be restricted to one or more IP addresses or CIDR ranges; an empty allowlist blocks all access
@@ -27,9 +30,10 @@ Client ──[X-API-Key]──► proxy.py (before_request auth)
 
 **Request flow:**
 1. `before_request` validates `X-API-Key` via `AuthService.validate_api_key()` — checks hash, `is_active`, and IP allowlist.
-2. Route handlers decorated with `@require_domain_access` verify the requested zone belongs to the key's account.
-3. `ProxyService.forward_request()` forwards the request to the PowerDNS API with the internal API key.
-4. `AuditService.log()` writes the result to `audit_logs`.
+2. Zone list endpoints filter the PDNS response to only include zones linked to the key's account.
+3. Zone-specific endpoints check whether the requested zone belongs to the key's account before forwarding.
+4. `ProxyService.forward_request()` forwards the request to the PowerDNS API with the internal API key.
+5. `AuditService.log()` writes the result to `audit_logs`.
 
 ## Requirements
 
@@ -90,47 +94,79 @@ gunicorn -w 4 "app:create_app()"
 
 All proxy endpoints require the `X-API-Key` header with a valid key (`pda_live_<32 hex chars>`).
 
+The proxy mirrors the PowerDNS REST API URL structure. Zone IDs are zone names with a trailing dot (e.g. `example.com.`), exactly as PDNS uses them.
+
+### Servers
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/servers` | List servers (proxied from PDNS) |
+| `GET` | `/api/v1/servers/<server_id>` | Server info (proxied from PDNS) |
+| `GET` | `/api/v1/servers/<server_id>/config` | Server config (proxied from PDNS) |
+| `GET` | `/api/v1/servers/<server_id>/statistics` | Statistics (proxied from PDNS) |
+
 ### Zones
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/zones` | List all zones accessible to this key |
-| `GET` | `/api/v1/zones/<id>` | Get zone details |
-| `PATCH` | `/api/v1/zones/<id>` | Update zone settings |
+| `GET` | `/api/v1/servers/<server_id>/zones` | List zones (filtered to account's zones) |
+| `POST` | `/api/v1/servers/<server_id>/zones` | **Blocked** — manage zones via PowerDNS-Admin |
+| `GET` | `/api/v1/servers/<server_id>/zones/<zone_id>` | Zone details incl. RRsets |
+| `PUT` | `/api/v1/servers/<server_id>/zones/<zone_id>` | Replace zone |
+| `PATCH` | `/api/v1/servers/<server_id>/zones/<zone_id>` | Update zone RRsets |
+| `DELETE` | `/api/v1/servers/<server_id>/zones/<zone_id>` | Delete zone |
 
-### Records
+### Zone sub-resources
+
+All zone sub-resources are proxied with the same access control applied to the parent zone:
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/zones/<id>/records` | List all records in a zone |
-| `POST` | `/api/v1/zones/<id>/records` | Create a record |
-| `GET` | `/api/v1/zones/<id>/records/<record_id>` | Get a specific record |
-| `PATCH` | `/api/v1/zones/<id>/records/<record_id>` | Update a record |
-| `DELETE` | `/api/v1/zones/<id>/records/<record_id>` | Delete a record |
+| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/notify` | Send NOTIFY |
+| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/export` | Export zone |
+| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/rectify` | Rectify zone |
+| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/metadata` | Zone metadata |
+| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/cryptokeys` | DNSSEC keys |
 
 ### Health
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/ping` | Liveness check (no auth required) |
+| `GET` | `/ping` | Liveness check (no auth required) |
+| `GET` | `/health` | Health check (no auth required) |
 
 ### Example requests
 
 ```bash
-# List zones
-curl -H "X-API-Key: pda_live_abcdef1234567890abcdef1234567890" \
-     http://localhost:5000/api/v1/zones
+KEY="pda_live_abcdef1234567890abcdef1234567890"
 
-# List records
-curl -H "X-API-Key: pda_live_abcdef1234567890abcdef1234567890" \
-     http://localhost:5000/api/v1/zones/42/records
+# List zones (same as PDNS API)
+curl -H "X-API-Key: $KEY" \
+     http://localhost:5000/api/v1/servers/localhost/zones
 
-# Create a record
-curl -X POST \
-     -H "X-API-Key: pda_live_abcdef1234567890abcdef1234567890" \
+# Get zone with RRsets
+curl -H "X-API-Key: $KEY" \
+     http://localhost:5000/api/v1/servers/localhost/zones/example.com.
+
+# Update a record (PDNS RRsets format)
+curl -X PATCH \
+     -H "X-API-Key: $KEY" \
      -H "Content-Type: application/json" \
-     -d '{"name": "www", "type": "A", "content": "1.2.3.4", "ttl": 300}' \
-     http://localhost:5000/api/v1/zones/42/records
+     -d '{
+       "rrsets": [{
+         "name": "www.example.com.",
+         "type": "A",
+         "ttl": 300,
+         "changetype": "REPLACE",
+         "records": [{"content": "1.2.3.4", "disabled": false}]
+       }]
+     }' \
+     http://localhost:5000/api/v1/servers/localhost/zones/example.com.
+
+# Send NOTIFY
+curl -X PUT \
+     -H "X-API-Key: $KEY" \
+     http://localhost:5000/api/v1/servers/localhost/zones/example.com./notify
 ```
 
 ### Error responses
@@ -138,8 +174,8 @@ curl -X POST \
 | Status | Meaning |
 |---|---|
 | `401` | Missing, invalid, or revoked API key; IP not on allowlist |
-| `403` | Zone does not belong to this key's account |
-| `404` | Zone or record not found |
+| `403` | Zone does not belong to this key's account; or zone creation attempted |
+| `502` | PowerDNS API unreachable or timed out |
 
 ## Admin UI
 
@@ -148,7 +184,7 @@ Available at `/admin/` — requires a PowerDNS-Admin user with the **Administrat
 **Features:**
 - Dashboard with all API keys, last-used timestamps, and domain counts
 - Create / revoke / delete API keys
-- Manage IP allowlist per key (exact IPs or CIDR ranges)
+- Manage IP allowlist per key (enter as `192.168.1.10` or `10.0.0.0/24`; bare IPs get `/32` automatically)
 - Per-key audit log viewer
 
 **Login:** `/admin/login`
@@ -177,7 +213,7 @@ curl -X POST http://localhost:5000/admin/api-keys \
        "account_id": 1,
        "description": "Customer A automation",
        "ip_allowlist": [
-         {"ip_address": "203.0.113.10"},
+         {"ip_address": "203.0.113.10", "cidr_mask": 32},
          {"ip_address": "10.0.0.0", "cidr_mask": 8}
        ]
      }'
@@ -197,8 +233,9 @@ Response (the `api_key` field is shown **once only**):
 ## IP Allowlist Behaviour
 
 - An **empty** allowlist means **no access** — all requests from that key are blocked.
-- Add at least one entry to allow requests.
-- CIDR notation is supported: `{"ip_address": "10.0.0.0", "cidr_mask": 8}` allows the entire `10.0.0.0/8` range.
+- Add at least one entry to allow requests. Use `0.0.0.0/0` to allow all IPs.
+- Bare IP addresses (e.g. `192.168.1.10`) are stored as `/32` (IPv4) or `/128` (IPv6) automatically.
+- CIDR notation is supported: `10.0.0.0/8` allows the entire `10.0.0.0/8` range.
 - Client IP is taken from the `X-Forwarded-For` header (first value), falling back to `remote_addr`.
 
 ## Database Schema
@@ -221,7 +258,7 @@ pytest tests/test_auth_service.py  # single file
 pytest tests/test_auth_service.py::TestAuthService::test_validate_valid_key  # single test
 ```
 
-Tests use SQLite in-memory via a `TestConfig` class.
+Tests use SQLite in-memory via a `TestConfig` class. The integration test (`tests/integration_test.py`) is a standalone script for end-to-end testing against a live environment — run it with `python tests/integration_test.py`.
 
 ## Adding Migrations
 

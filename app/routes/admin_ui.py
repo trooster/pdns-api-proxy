@@ -1,3 +1,4 @@
+import ipaddress
 import secrets
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, abort, jsonify
 from flask_login import login_required, current_user
@@ -33,6 +34,26 @@ def _check_csrf():
         flash("Ongeldige CSRF token. Probeer opnieuw.", "danger")
         return False
     return True
+
+
+def _parse_ip_entry(ip_line: str):
+    """
+    Parses 'IP' or 'IP/mask' and returns (ip_str, cidr_mask).
+    Bare IPs get /32 (IPv4) or /128 (IPv6) as default mask.
+    Raises ValueError on invalid input.
+    """
+    ip_line = ip_line.strip()
+    if "/" in ip_line:
+        ip_str, mask_str = ip_line.split("/", 1)
+        ip_str = ip_str.strip()
+        mask = int(mask_str.strip())
+    else:
+        ip_str = ip_line
+        addr = ipaddress.ip_address(ip_str)
+        mask = 32 if addr.version == 4 else 128
+    # Validate the IP address
+    ipaddress.ip_address(ip_str)
+    return ip_str, mask
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -111,19 +132,17 @@ def key_create():
         db.session.flush()
 
         for ip_line in ip_addresses:
-            if "/" in ip_line:
-                parts = ip_line.split("/", 1)
-                db.session.add(ApiKeyIpAllowlist(
-                    api_key_id=new_key.id,
-                    ip_address=parts[0],
-                    cidr_mask=int(parts[1])
-                ))
-            else:
-                db.session.add(ApiKeyIpAllowlist(
-                    api_key_id=new_key.id,
-                    ip_address=ip_line,
-                    cidr_mask=None
-                ))
+            try:
+                ip_str, cidr_mask = _parse_ip_entry(ip_line)
+            except ValueError:
+                flash(f"Ongeldig IP adres: {ip_line}", "danger")
+                db.session.rollback()
+                return render_template("admin/key_create.html", accounts=accounts, csrf=csrf)
+            db.session.add(ApiKeyIpAllowlist(
+                api_key_id=new_key.id,
+                ip_address=ip_str,
+                cidr_mask=cidr_mask,
+            ))
 
         db.session.commit()
 
@@ -218,15 +237,19 @@ def ip_add(key_id):
     if not _check_csrf():
         return redirect(url_for("admin_ui.key_detail", key_id=key_id))
     db.get_or_404(ApiKey, key_id)
-    ip_address = request.form.get("ip_address", "").strip()
-    cidr_mask = request.form.get("cidr_mask", "").strip() or None
-    if not ip_address:
+    ip_cidr = request.form.get("ip_cidr", "").strip()
+    if not ip_cidr:
         flash("Vul een IP adres in.", "danger")
+        return redirect(url_for("admin_ui.key_detail", key_id=key_id))
+    try:
+        ip_address, cidr_mask = _parse_ip_entry(ip_cidr)
+    except ValueError:
+        flash(f"Ongeldig IP adres of CIDR notatie: {ip_cidr}", "danger")
         return redirect(url_for("admin_ui.key_detail", key_id=key_id))
     db.session.add(ApiKeyIpAllowlist(
         api_key_id=key_id,
         ip_address=ip_address,
-        cidr_mask=int(cidr_mask) if cidr_mask else None
+        cidr_mask=cidr_mask,
     ))
     db.session.commit()
     flash("IP toegevoegd.", "success")

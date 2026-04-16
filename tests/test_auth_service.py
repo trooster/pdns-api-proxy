@@ -64,4 +64,5 @@ def test_ip_utils_cidr():
 def test_ip_utils_empty_allowlist():
     from app.utils.ip_utils import is_ip_in_allowlist
 
-    assert is_ip_in_allowlist("1.2.3.4", []) is True
+    # Lege allowlist = geen toegang
+    assert is_ip_in_allowlist("1.2.3.4", []) is False

@@ -113,7 +113,7 @@
           {% for ip in ips %}
           <li class="list-group-item d-flex justify-content-between align-items-center px-0">
             <span class="font-monospace">
-              {{ ip.ip_address }}{% if ip.cidr_mask %}/{{ ip.cidr_mask }}{% endif %}
+              {{ ip.ip_address }}/{{ ip.cidr_mask if ip.cidr_mask is not none else 32 }}
             </span>
             <form method="POST"
                   action="{{ url_for('admin_ui.ip_remove', key_id=key.id, ip_id=ip.id) }}"
@@ -135,14 +135,9 @@
               class="row g-2 align-items-end">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <div class="col">
-            <label class="form-label form-label-sm">IP adres</label>
+            <label class="form-label form-label-sm">IP adres / CIDR</label>
             <input type="text" class="form-control form-control-sm font-monospace"
-                   name="ip_address" placeholder="192.168.1.10">
-          </div>
-          <div class="col-auto" style="width:90px">
-            <label class="form-label form-label-sm">CIDR mask</label>
-            <input type="number" class="form-control form-control-sm"
-                   name="cidr_mask" placeholder="24" min="0" max="128">
+                   name="ip_cidr" placeholder="192.168.1.10 of 10.0.0.0/24">
           </div>
           <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-outline-success">

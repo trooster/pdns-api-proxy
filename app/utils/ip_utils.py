@@ -14,7 +14,7 @@ def is_ip_in_allowlist(client_ip: str, allowlist: List[dict]) -> bool:
     client = ipaddress.ip_address(client_ip)
 
     for entry in allowlist:
-        if entry.get('cidr_mask'):
+        if entry.get('cidr_mask') is not None:
             # CIDR check
             network = ipaddress.ip_network(
                 f"{entry['ip_address']}/{entry['cidr_mask']}",
