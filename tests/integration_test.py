@@ -172,16 +172,15 @@ def test_admin_api():
           "GET /admin/api-keys mislukt", str(r.text))
 
     # Key aanmaken zonder verplichte velden
-    r = post("/admin/api-keys", json={"description": "mis user id"})
+    r = post("/admin/api-keys", json={"description": "mis account id"})
     check(r.status_code == 400,
-          "POST /admin/api-keys zonder pdns_user_id → 400",
+          "POST /admin/api-keys zonder account_id → 400",
           f"Verwacht 400, kreeg {r.status_code}")
 
     # Key aanmaken
     r = post("/admin/api-keys", json={
-        "pdns_user_id": 1,
+        "account_id": 1,
         "description": "Integratietest key",
-        "domain_ids": [TEST_DOMAIN_ID],
     })
     check(r.status_code == 201,
           "POST /admin/api-keys → 201",
@@ -210,30 +209,6 @@ def test_admin_api():
     check(r.status_code == 200 and r.json()["id"] == key_id,
           "GET /admin/api-keys/<id> → 200",
           "GET /admin/api-keys/<id> mislukt", str(r.text))
-
-    # Domein is toegevoegd
-    detail = r.json()
-    check(TEST_DOMAIN_ID in detail.get("domains", []),
-          f"Domein {TEST_DOMAIN_ID} in allowlist na aanmaken",
-          f"Domein {TEST_DOMAIN_ID} NIET in allowlist, gevonden: {detail.get('domains')}")
-
-    # Domein toevoegen via losse call
-    r = post(f"/admin/api-keys/{key_id}/domains", json={"domain_id": TEST_DOMAIN_ID})
-    check(r.status_code == 400,
-          "Dubbel domein toevoegen → 400",
-          f"Verwacht 400, kreeg {r.status_code}")
-
-    # Extra domein toevoegen en verwijderen
-    extra_domain = TEST_DOMAIN_ID + 1000
-    r = post(f"/admin/api-keys/{key_id}/domains", json={"domain_id": extra_domain})
-    check(r.status_code == 201,
-          f"Extra domein {extra_domain} toevoegen → 201",
-          f"Toevoegen domein mislukt ({r.status_code})")
-
-    r = delete(f"/admin/api-keys/{key_id}/domains/{extra_domain}")
-    check(r.status_code == 200,
-          f"Extra domein {extra_domain} verwijderen → 200",
-          f"Verwijderen domein mislukt ({r.status_code})")
 
     # IP toevoegen
     r = post(f"/admin/api-keys/{key_id}/ips", json={"ip_address": "10.0.0.0", "cidr_mask": 8})

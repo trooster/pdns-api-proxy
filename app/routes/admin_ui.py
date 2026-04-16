@@ -1,10 +1,11 @@
 import secrets
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, abort
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, abort, jsonify
 from flask_login import login_required, current_user
+from sqlalchemy import func
 from app import db
-from app.models.api_key import ApiKey, ApiKeyDomainAllowlist, ApiKeyIpAllowlist
+from app.models.api_key import ApiKey, ApiKeyIpAllowlist
 from app.models.audit_log import AuditLog
-from app.models.pdns_admin import PdnsDomain
+from app.models.pdns_admin import PdnsAccount, PdnsDomain, PdnsUser
 from app.services.auth_service import AuthService
 
 bp = Blueprint("admin_ui", __name__)
@@ -42,7 +43,35 @@ def _check_csrf():
 @_require_admin
 def dashboard():
     keys = ApiKey.query.order_by(ApiKey.created_at.desc()).all()
-    return render_template("admin/dashboard.html", keys=keys)
+
+    account_ids = {k.account_id for k in keys}
+    key_ids = [k.id for k in keys]
+
+    accounts = {a.id: a for a in PdnsAccount.query.filter(PdnsAccount.id.in_(account_ids)).all()} if account_ids else {}
+
+    domain_counts = {}
+    if account_ids:
+        for account_id, count in db.session.query(PdnsDomain.account_id, func.count(PdnsDomain.id))\
+                .filter(PdnsDomain.account_id.in_(account_ids))\
+                .group_by(PdnsDomain.account_id):
+            domain_counts[account_id] = count
+
+    last_used = {}
+    if key_ids:
+        for key_id, ts in db.session.query(AuditLog.api_key_id, func.max(AuditLog.timestamp))\
+                .filter(AuditLog.api_key_id.in_(key_ids))\
+                .group_by(AuditLog.api_key_id):
+            last_used[key_id] = ts
+
+    ip_counts = {}
+    if key_ids:
+        for key_id, count in db.session.query(ApiKeyIpAllowlist.api_key_id, func.count(ApiKeyIpAllowlist.id))\
+                .filter(ApiKeyIpAllowlist.api_key_id.in_(key_ids))\
+                .group_by(ApiKeyIpAllowlist.api_key_id):
+            ip_counts[key_id] = count
+
+    return render_template("admin/dashboard.html", keys=keys, accounts=accounts,
+                           domain_counts=domain_counts, last_used=last_used, ip_counts=ip_counts)
 
 
 # ── Create key ────────────────────────────────────────────────────────────────
@@ -51,24 +80,23 @@ def dashboard():
 @login_required
 @_require_admin
 def key_create():
-    domains = PdnsDomain.query.order_by(PdnsDomain.name).all()
+    accounts = PdnsAccount.query.order_by(PdnsAccount.name).all()
     csrf = _csrf_token()
 
     if request.method == "POST":
         if not _check_csrf():
-            return render_template("admin/key_create.html", domains=domains, csrf=csrf)
+            return render_template("admin/key_create.html", accounts=accounts, csrf=csrf)
 
         description = request.form.get("description", "").strip()
-        pdns_user_id = request.form.get("pdns_user_id", "").strip()
-        domain_ids = request.form.getlist("domain_ids", type=int)
+        account_id = request.form.get("account_id", "").strip()
         ip_addresses = [
             ip.strip() for ip in request.form.get("ip_addresses", "").splitlines()
             if ip.strip()
         ]
 
-        if not pdns_user_id or not pdns_user_id.isdigit():
-            flash("Vul een geldig PowerDNS-Admin gebruiker ID in.", "danger")
-            return render_template("admin/key_create.html", domains=domains, csrf=csrf)
+        if not account_id or not account_id.isdigit():
+            flash("Selecteer een account.", "danger")
+            return render_template("admin/key_create.html", accounts=accounts, csrf=csrf)
 
         full_key, key_hash, key_prefix = AuthService.generate_api_key()
 
@@ -76,14 +104,11 @@ def key_create():
             key_hash=key_hash,
             key_prefix=key_prefix,
             description=description,
-            pdns_user_id=int(pdns_user_id),
+            account_id=int(account_id),
             created_by=current_user.id,
         )
         db.session.add(new_key)
         db.session.flush()
-
-        for domain_id in domain_ids:
-            db.session.add(ApiKeyDomainAllowlist(api_key_id=new_key.id, domain_id=domain_id))
 
         for ip_line in ip_addresses:
             if "/" in ip_line:
@@ -106,7 +131,18 @@ def key_create():
         flash(f"API key aangemaakt. Bewaar deze key — hij is maar één keer zichtbaar: {full_key}", "key")
         return redirect(url_for("admin_ui.key_detail", key_id=new_key.id))
 
-    return render_template("admin/key_create.html", domains=domains, csrf=csrf)
+    return render_template("admin/key_create.html", accounts=accounts, csrf=csrf)
+
+
+# ── Account domains (AJAX) ────────────────────────────────────────────────────
+
+@bp.route("/admin/accounts/<int:account_id>/domains")
+@login_required
+@_require_admin
+def account_domains(account_id):
+    account = PdnsAccount.query.get_or_404(account_id)
+    domains = [{"id": d.id, "name": d.name} for d in account.domains.order_by(PdnsDomain.name)]
+    return jsonify({"account": account.name, "domains": domains})
 
 
 # ── Key detail / edit ─────────────────────────────────────────────────────────
@@ -116,18 +152,18 @@ def key_create():
 @_require_admin
 def key_detail(key_id):
     key = db.get_or_404(ApiKey, key_id)
-    domains_allowed = key.domain_allowlist.all()
-    allowed_domain_ids = {d.domain_id for d in domains_allowed}
-    all_domains = PdnsDomain.query.order_by(PdnsDomain.name).all()
+    account = PdnsAccount.query.get(key.account_id)
     ips = key.ip_allowlist.all()
+    domains = account.domains.order_by(PdnsDomain.name).all() if account else []
+    created_by_user = PdnsUser.query.get(key.created_by) if key.created_by else None
     csrf = _csrf_token()
     return render_template(
         "admin/key_detail.html",
         key=key,
-        domains_allowed=domains_allowed,
-        allowed_domain_ids=allowed_domain_ids,
-        all_domains=all_domains,
+        account=account,
         ips=ips,
+        domains=domains,
+        created_by_user=created_by_user,
         csrf=csrf,
     )
 
@@ -171,43 +207,6 @@ def key_delete(key_id):
     db.session.commit()
     flash(f"Key {prefix}… is verwijderd.", "info")
     return redirect(url_for("admin_ui.dashboard"))
-
-
-# ── Domain allowlist ──────────────────────────────────────────────────────────
-
-@bp.route("/admin/keys/<int:key_id>/domains/add", methods=["POST"])
-@login_required
-@_require_admin
-def domain_add(key_id):
-    if not _check_csrf():
-        return redirect(url_for("admin_ui.key_detail", key_id=key_id))
-    db.get_or_404(ApiKey, key_id)
-    domain_id = request.form.get("domain_id", type=int)
-    if not domain_id:
-        flash("Selecteer een domein.", "danger")
-        return redirect(url_for("admin_ui.key_detail", key_id=key_id))
-    if not ApiKeyDomainAllowlist.query.filter_by(api_key_id=key_id, domain_id=domain_id).first():
-        db.session.add(ApiKeyDomainAllowlist(api_key_id=key_id, domain_id=domain_id))
-        db.session.commit()
-        flash("Domein toegevoegd.", "success")
-    else:
-        flash("Domein stond al in de allowlist.", "warning")
-    return redirect(url_for("admin_ui.key_detail", key_id=key_id))
-
-
-@bp.route("/admin/keys/<int:key_id>/domains/<int:domain_id>/remove", methods=["POST"])
-@login_required
-@_require_admin
-def domain_remove(key_id, domain_id):
-    if not _check_csrf():
-        return redirect(url_for("admin_ui.key_detail", key_id=key_id))
-    entry = ApiKeyDomainAllowlist.query.filter_by(
-        api_key_id=key_id, domain_id=domain_id
-    ).first_or_404()
-    db.session.delete(entry)
-    db.session.commit()
-    flash("Domein verwijderd.", "info")
-    return redirect(url_for("admin_ui.key_detail", key_id=key_id))
 
 
 # ── IP allowlist ──────────────────────────────────────────────────────────────

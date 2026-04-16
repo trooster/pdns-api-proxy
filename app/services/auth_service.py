@@ -2,7 +2,7 @@ import secrets
 import hashlib
 from typing import Optional, Tuple
 from app import db
-from app.models.api_key import ApiKey, ApiKeyDomainAllowlist, ApiKeyIpAllowlist
+from app.models.api_key import ApiKey, ApiKeyIpAllowlist
 from app.utils.ip_utils import is_ip_in_allowlist
 
 
@@ -51,16 +51,14 @@ class AuthService:
         return True, key_obj, ""
 
     @staticmethod
-    def check_domain_access(api_key_id: int, domain_id: int) -> bool:
-        """Check of API key toegang heeft tot dit domain."""
-        entry = ApiKeyDomainAllowlist.query.filter_by(
-            api_key_id=api_key_id,
-            domain_id=domain_id
-        ).first()
-        return entry is not None
+    def check_domain_access(account_id: int, domain_id: int) -> bool:
+        """Check of het domein gekoppeld is aan het account van de API key."""
+        from app.models.pdns_admin import PdnsDomain
+        domain = PdnsDomain.query.filter_by(id=domain_id, account_id=account_id).first()
+        return domain is not None
 
     @staticmethod
-    def get_allowed_domain_ids(api_key_id: int) -> list:
-        """Haal lijst van toegestane domain_ids op voor een API key."""
-        entries = ApiKeyDomainAllowlist.query.filter_by(api_key_id=api_key_id).all()
-        return [e.domain_id for e in entries]
+    def get_allowed_domains(account_id: int):
+        """Haal alle domeinen op die gekoppeld zijn aan dit account in PowerDNS-Admin."""
+        from app.models.pdns_admin import PdnsDomain
+        return PdnsDomain.query.filter_by(account_id=account_id).all()

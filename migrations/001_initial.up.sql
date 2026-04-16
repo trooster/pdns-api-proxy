@@ -1,28 +1,20 @@
 -- PDNS API Proxy - Initial schema migration
 -- Run against the PowerDNS-Admin database
--- Prerequisites: PowerDNS-Admin tables must already exist (domain table used for FK references)
+-- No prerequisites: can run on a fresh database before PowerDNS-Admin is set up.
+-- account_id is intentionally stored without a FK so this migration is independent
+-- of the PowerDNS-Admin schema version.
 
 CREATE TABLE IF NOT EXISTS api_keys (
     id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
     key_hash    CHAR(64)     NOT NULL,
-    key_prefix  VARCHAR(12)  NOT NULL,
+    key_prefix  VARCHAR(13)  NOT NULL,
     description VARCHAR(255) NULL,
-    pdns_user_id INT UNSIGNED NOT NULL,
+    account_id  INT UNSIGNED NOT NULL,
     is_active   TINYINT(1)   NOT NULL DEFAULT 1,
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by  INT UNSIGNED NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uq_api_keys_key_hash (key_hash)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS api_key_domain_allowlist (
-    id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    api_key_id  INT UNSIGNED NOT NULL,
-    domain_id   INT UNSIGNED NOT NULL,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_key_domain (api_key_id, domain_id),
-    CONSTRAINT fk_akdal_api_key FOREIGN KEY (api_key_id)
-        REFERENCES api_keys (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS api_key_ip_allowlist (

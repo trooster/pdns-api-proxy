@@ -55,10 +55,24 @@ class PdnsUser(UserMixin, db.Model):
         return totp.verify(code, valid_window=1)
 
 
+class PdnsAccount(db.Model):
+    """PowerDNS-Admin account table — groepeert domeinen per klant."""
+    __tablename__ = "account"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(40), unique=True)
+    description = db.Column(db.String(128))
+    contact = db.Column(db.String(128))
+    mail = db.Column(db.String(128))
+
+    domains = db.relationship("PdnsDomain", backref="account", lazy="dynamic")
+
+
 class PdnsDomain(db.Model):
-    """PowerDNS domain table — used to select which zones to allow per key."""
+    """PowerDNS domain table — zones gekoppeld aan een account."""
     __tablename__ = "domain"
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255))
     type = db.Column(db.String(6))
+    account_id = db.Column(db.Integer, db.ForeignKey("account.id"), nullable=True)

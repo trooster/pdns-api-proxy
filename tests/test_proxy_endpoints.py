@@ -2,8 +2,8 @@ import pytest
 import hashlib
 from unittest.mock import patch, MagicMock
 from app import create_app, db
-from app.models.api_key import ApiKey, ApiKeyDomainAllowlist
-from app.models.pdns_admin import PdnsDomain
+from app.models.api_key import ApiKey
+from app.models.pdns_admin import PdnsAccount, PdnsDomain
 
 
 @pytest.fixture
@@ -27,23 +27,22 @@ def client(app):
 
 @pytest.fixture
 def api_key_with_zone(app):
-    """Create an API key with access to zone 42 (example.com)."""
+    """Create an API key linked to account 1, which owns zone 42 (example.com)."""
     with app.app_context():
-        domain = PdnsDomain(id=42, name="example.com", type="NATIVE")
+        account = PdnsAccount(id=1, name="test-account")
+        db.session.add(account)
+
+        domain = PdnsDomain(id=42, name="example.com", type="NATIVE", account_id=1)
         db.session.add(domain)
 
         key_str = "pda_live_testkey00000000000000000"
         key = ApiKey(
             key_hash=hashlib.sha256(key_str.encode()).hexdigest(),
             key_prefix="pda_live_test",
-            pdns_user_id=1,
+            account_id=1,
             created_by=1,
         )
         db.session.add(key)
-        db.session.flush()
-
-        allowlist_entry = ApiKeyDomainAllowlist(api_key_id=key.id, domain_id=42)
-        db.session.add(allowlist_entry)
         db.session.commit()
 
         return key_str
@@ -68,8 +67,8 @@ def test_zones_invalid_key(client):
     assert resp.status_code == 401
 
 
-def test_list_zones_filters_by_allowlist(client, api_key_with_zone):
-    """list_zones returns only zones in the API key's allowlist.
+def test_list_zones_filters_by_account(client, api_key_with_zone):
+    """list_zones returns only zones linked to the API key's account.
     PDNS zone IDs are zone names with trailing dot (e.g. "example.com.").
     """
     mock_zones = [
@@ -91,13 +90,13 @@ def test_list_zones_filters_by_allowlist(client, api_key_with_zone):
 
 
 def test_get_zone_denied_for_other_zone(client, api_key_with_zone):
-    """get_zone returns 403 when key has no access to the requested zone."""
+    """get_zone returns 403 when the zone does not belong to the key's account."""
     resp = client.get("/api/v1/zones/99", headers={"X-API-Key": api_key_with_zone})
     assert resp.status_code == 403
 
 
 def test_get_zone_allowed(client, api_key_with_zone):
-    """get_zone forwards to PDNS when access is granted."""
+    """get_zone forwards to PDNS when zone belongs to the key's account."""
     with patch("requests.request") as mock_req:
         mock_resp = MagicMock()
         mock_resp.status_code = 200

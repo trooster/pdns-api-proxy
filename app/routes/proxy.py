@@ -3,7 +3,6 @@ from app.services.proxy_service import ProxyService
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 from app.routes.proxy_decorators import require_domain_access
-from app.models.pdns_admin import PdnsDomain
 
 bp = Blueprint("proxy", __name__, url_prefix="/api/v1")
 
@@ -47,10 +46,10 @@ def list_zones():
     if error:
         return jsonify({"error": error}), status
 
-    allowed_domain_ids = AuthService.get_allowed_domain_ids(g.api_key.id)
-    allowed_domains = PdnsDomain.query.filter(PdnsDomain.id.in_(allowed_domain_ids)).all()
+    # Haal domeinen op die aan het account gekoppeld zijn in PowerDNS-Admin.
     # PDNS zone IDs hebben een trailing dot ("example.com."); PdnsDomain.name heeft die niet.
     # Normaliseer beide kanten: lowercase, zonder trailing dot.
+    allowed_domains = AuthService.get_allowed_domains(g.api_key.account_id)
     allowed_names = {d.name.rstrip(".").lower() for d in allowed_domains}
 
     def _zone_allowed(zone):

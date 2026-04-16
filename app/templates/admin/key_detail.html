@@ -52,66 +52,51 @@
         <dl class="row mb-0 small">
           <dt class="col-sm-4 text-muted">Prefix</dt>
           <dd class="col-sm-8 font-monospace">{{ key.key_prefix }}…</dd>
-          <dt class="col-sm-4 text-muted">Gebruiker ID</dt>
-          <dd class="col-sm-8">{{ key.pdns_user_id }}</dd>
+          <dt class="col-sm-4 text-muted">Account</dt>
+          <dd class="col-sm-8">
+            {% if account %}
+              <strong>{{ account.name }}</strong>
+              {% if account.description %}
+                <span class="text-muted">— {{ account.description }}</span>
+              {% endif %}
+              <span class="text-muted">(#{{ account.id }})</span>
+            {% else %}
+              <span class="text-danger">Onbekend account #{{ key.account_id }}</span>
+            {% endif %}
+          </dd>
           <dt class="col-sm-4 text-muted">Aangemaakt</dt>
           <dd class="col-sm-8">{{ key.created_at.strftime('%d-%m-%Y %H:%M') if key.created_at else '—' }}</dd>
           <dt class="col-sm-4 text-muted">Aangemaakt door</dt>
-          <dd class="col-sm-8">user #{{ key.created_by }}</dd>
+          <dd class="col-sm-8">
+            {% if created_by_user %}
+              {{ created_by_user.firstname }} {{ created_by_user.lastname }}
+              <span class="text-muted">({{ created_by_user.username }})</span>
+            {% else %}
+              user #{{ key.created_by }}
+            {% endif %}
+          </dd>
         </dl>
       </div>
     </div>
 
-    {# Domain allowlist #}
+    {# Domain info #}
     <div class="card shadow-sm mb-4">
       <div class="card-header fw-semibold">
-        <i class="bi bi-globe me-1"></i>Domein allowlist
-        <span class="badge bg-secondary ms-1">{{ domains_allowed | length }}</span>
+        <i class="bi bi-globe me-1"></i>Toegestane zones
       </div>
-      <div class="card-body">
-        {% if domains_allowed %}
-        <ul class="list-group list-group-flush mb-3">
-          {% for entry in domains_allowed %}
-          <li class="list-group-item d-flex justify-content-between align-items-center px-0">
-            {# Try to resolve domain name from all_domains #}
-            {% set domain_obj = all_domains | selectattr('id', 'equalto', entry.domain_id) | first %}
-            <span class="font-monospace">
-              {{ domain_obj.name if domain_obj else '(onbekend domein)' }}
-              <span class="text-muted">#{{ entry.domain_id }}</span>
-            </span>
-            <form method="POST"
-                  action="{{ url_for('admin_ui.domain_remove', key_id=key.id, domain_id=entry.domain_id) }}"
-                  class="d-inline">
-              <input type="hidden" name="csrf_token" value="{{ csrf }}">
-              <button type="submit" class="btn btn-sm btn-outline-danger"
-                      onclick="return confirm('Domein verwijderen uit allowlist?')">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
-          </li>
+      <div class="card-body small">
+        <p class="text-muted mb-2">
+          <i class="bi bi-info-circle me-1"></i>
+          De zones die deze key mag benaderen worden bepaald door de domeinen die in
+          PowerDNS-Admin aan account <strong>{{ account.name if account else '#' ~ key.account_id }}</strong>
+          gekoppeld zijn. Beheer dit via PowerDNS-Admin.
+        </p>
+        {% if domains %}
+          {% for domain in domains %}
+            <span class="badge bg-secondary me-1 mb-1 font-monospace">{{ domain.name }}</span>
           {% endfor %}
-        </ul>
         {% else %}
-        <p class="text-muted small mb-3">Geen domeinen toegevoegd. Alle domeinen geblokkeerd.</p>
-        {% endif %}
-
-        {# Add domain form #}
-        {% set available = all_domains | rejectattr('id', 'in', allowed_domain_ids) | list %}
-        {% if available %}
-        <form method="POST" action="{{ url_for('admin_ui.domain_add', key_id=key.id) }}"
-              class="d-flex gap-2">
-          <input type="hidden" name="csrf_token" value="{{ csrf }}">
-          <select name="domain_id" class="form-select form-select-sm">
-            {% for domain in available %}
-            <option value="{{ domain.id }}">{{ domain.name }}</option>
-            {% endfor %}
-          </select>
-          <button type="submit" class="btn btn-sm btn-outline-success text-nowrap">
-            <i class="bi bi-plus-lg me-1"></i>Toevoegen
-          </button>
-        </form>
-        {% else %}
-        <p class="text-muted small mb-0">Alle domeinen zijn al toegevoegd.</p>
+          <span class="text-muted fst-italic">Geen zones gekoppeld aan dit account.</span>
         {% endif %}
       </div>
     </div>
@@ -120,7 +105,7 @@
     <div class="card shadow-sm mb-4">
       <div class="card-header fw-semibold">
         <i class="bi bi-hdd-network me-1"></i>IP allowlist
-        <span class="text-muted fw-normal small ms-2">leeg = alle IPs toegestaan</span>
+        <span class="text-muted fw-normal small ms-2">leeg = key werkt niet</span>
       </div>
       <div class="card-body">
         {% if ips %}
@@ -143,7 +128,7 @@
           {% endfor %}
         </ul>
         {% else %}
-        <p class="text-muted small mb-3">Geen IP restricties — alle IPs zijn toegestaan.</p>
+        <p class="text-danger small mb-3"><i class="bi bi-exclamation-triangle me-1"></i>Geen IP's toegevoegd — deze key werkt niet. Voeg minimaal één IP toe, of gebruik <code>0.0.0.0/0</code> om alle IPs toe te staan.</p>
         {% endif %}
 
         <form method="POST" action="{{ url_for('admin_ui.ip_add', key_id=key.id) }}"

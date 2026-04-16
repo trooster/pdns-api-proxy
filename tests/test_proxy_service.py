@@ -58,7 +58,7 @@ def test_audit_service_log(app):
         key = ApiKey(
             key_hash=hashlib.sha256(b"test").hexdigest(),
             key_prefix="pda_test",
-            pdns_user_id=1,
+            account_id=1,
             created_by=1
         )
         db.session.add(key)

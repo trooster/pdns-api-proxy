@@ -17,23 +17,29 @@
         <tr>
           <th>Prefix</th>
           <th>Omschrijving</th>
-          <th>Gebruiker ID</th>
-          <th>Domeinen</th>
+          <th>Account</th>
+          <th>Zones</th>
           <th>Status</th>
           <th>Aangemaakt</th>
+          <th>Laatst gebruikt</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for key in keys %}
+        {% set account = accounts.get(key.account_id) %}
         <tr>
           <td><code class="key-badge">{{ key.key_prefix }}…</code></td>
           <td>{{ key.description or '—' }}</td>
-          <td>{{ key.pdns_user_id }}</td>
           <td>
-            <span class="badge bg-secondary">
-              {{ key.domain_allowlist.count() }} domein(en)
-            </span>
+            {% if account %}
+              {{ account.name }}
+            {% else %}
+              <span class="text-muted">#{{ key.account_id }}</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {{ domain_counts.get(key.account_id, 0) }}
           </td>
           <td>
             {% if key.is_active %}
@@ -41,9 +47,19 @@
             {% else %}
               <span class="badge bg-danger">Ingetrokken</span>
             {% endif %}
+            {% if ip_counts.get(key.id, 0) == 0 %}
+              <span class="badge bg-warning text-dark ms-1"
+                    title="Geen IP allowlist — key werkt niet">
+                <i class="bi bi-exclamation-triangle"></i> Geen IPs
+              </span>
+            {% endif %}
           </td>
           <td class="text-muted small">
             {{ key.created_at.strftime('%d-%m-%Y %H:%M') if key.created_at else '—' }}
+          </td>
+          <td class="text-muted small">
+            {% set lu = last_used.get(key.id) %}
+            {{ lu.strftime('%d-%m-%Y %H:%M') if lu else '—' }}
           </td>
           <td>
             <a href="{{ url_for('admin_ui.key_detail', key_id=key.id) }}"

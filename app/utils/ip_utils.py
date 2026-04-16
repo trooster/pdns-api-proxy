@@ -9,7 +9,7 @@ def is_ip_in_allowlist(client_ip: str, allowlist: List[dict]) -> bool:
     allowlist: list van dicts met 'ip_address' en optioneel 'cidr_mask'
     """
     if not allowlist:
-        return True  # Lege allowlist = alles toegestaan
+        return False  # Lege allowlist = geen toegang
 
     client = ipaddress.ip_address(client_ip)
 
