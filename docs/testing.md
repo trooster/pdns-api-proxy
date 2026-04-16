@@ -107,36 +107,35 @@ curl http://localhost:5000/api/v1/ping
 
 ---
 
-### 2. Admin web UI — inloggen
+### 2. Web UI — inloggen
 
-Open in de browser: **http://localhost:5000/admin/**
+Open in de browser: **http://localhost:5000/**
 
 **Test A — redirect**
-- Je wordt automatisch doorgestuurd naar `/admin/login` ✓
+- Je wordt automatisch doorgestuurd naar `/login` ✓
 
 **Test B — verkeerd wachtwoord**
 - Vul een verkeerde gebruikersnaam of wachtwoord in
 - Verwacht: foutmelding *"Ongeldige gebruikersnaam of wachtwoord"*, pagina blijft staan ✓
 
-**Test C — geen admin rechten**
+**Test C — gewone gebruiker**
 - Log in met een gewone (niet-admin) PowerDNS-Admin gebruiker
-- Verwacht: foutmelding *"Je hebt geen beheerdersrechten"* ✓
+- Verwacht: inloggen lukt, dashboard toont alleen keys van eigen accounts ✓
 
-**Test D — succesvol inloggen**
+**Test D — administrator inloggen**
 - Log in met een Administrator account
 - Als 2FA ingesteld: voer de 6-cijferige code in vanuit je authenticator app
-- Verwacht: doorgestuurd naar het dashboard ✓
+- Verwacht: doorgestuurd naar het dashboard, alle keys van alle accounts zichtbaar ✓
 
 ---
 
 ### 3. API key aanmaken via web UI
 
-Ga naar **http://localhost:5000/admin/keys/new**
+Ga naar **http://localhost:5000/keys/new**
 
 Vul in:
-- **Gebruiker ID:** een geldig ID uit de PowerDNS-Admin `user` tabel (bijv. `1`)
+- **Account:** selecteer een account (admins zien alle accounts, gewone gebruikers alleen hun eigen)
 - **Omschrijving:** `Testklant`
-- **Domeinen:** vink één of meer domeinen aan
 - **IP allowlist:** laat leeg (voor nu)
 
 Klik **Key aanmaken**
@@ -150,7 +149,7 @@ Sla de key op voor de volgende tests:
 
 ```bash
 export KEY="pda_live_xxxx..."   # plak jouw key hier
-export ZONE_ID=3                # het domein-ID dat je hebt aangevinkt
+export ZONE_ID=3                # een domein-ID dat aan het account gekoppeld is
 ```
 
 ---
@@ -197,21 +196,14 @@ curl -i -H "X-API-Key: $KEY" http://localhost:5000/api/v1/zones/9999/records
 
 ### 6. Domeinen beheren via web UI
 
-Ga naar de detailpagina: **http://localhost:5000/admin/** → klik op het potloodje
+Ga naar het dashboard: **http://localhost:5000/** → klik op het potloodje naast een key
 
-**Domein toevoegen:**
-- Selecteer een domein uit de dropdown onder *Domein allowlist*
-- Klik **Toevoegen**
-- Verwacht: domein verschijnt in de lijst ✓
+Domeintoegang is gekoppeld aan het account van de key. Voeg domeinen toe of verwijder ze via PowerDNS-Admin (`account` → `domains`). De proxy past de toegang direct toe.
 
-**Domein verwijderen:**
-- Klik op het prullenbakje naast een domein
-- Verwacht: domein verdwijnt uit de lijst ✓
-
-Controleer dat het verwijderde domein nu geblokkeerd is:
+Controleer dat een niet-gekoppeld domein geblokkeerd is:
 
 ```bash
-# Vervang REMOVED_ZONE_ID met het zojuist verwijderde domein-ID
+# Vervang REMOVED_ZONE_ID met een domein-ID dat niet aan het account gekoppeld is
 curl -i -H "X-API-Key: $KEY" http://localhost:5000/api/v1/zones/$REMOVED_ZONE_ID
 # Verwacht: 403
 ```
@@ -274,7 +266,7 @@ Ga naar de detailpagina → klik **Audit log** (rechtsboven)
 
 ### 10. Key verwijderen
 
-Ga naar de detailpagina → klik **Key verwijderen** → bevestig
+Ga naar de detailpagina → klik **Key verwijderen** → bevestig (alleen beschikbaar voor Administrators)
 
 ```bash
 curl -i -H "X-API-Key: $KEY" http://localhost:5000/api/v1/zones
@@ -290,18 +282,18 @@ Dashboard: de key staat er niet meer in ✓
 | # | Test | Verwacht |
 |---|------|----------|
 | 1 | Health endpoints | `{"status": "ok"}` |
-| 2A | `/admin/` zonder login | Redirect naar login |
+| 2A | `/` zonder login | Redirect naar `/login` |
 | 2B | Verkeerd wachtwoord | Foutmelding, blijft op login |
-| 2C | Niet-admin gebruiker | Foutmelding "geen beheerdersrechten" |
-| 2D | Admin inloggen (+2FA) | Dashboard zichtbaar |
+| 2C | Gewone gebruiker inloggen | Dashboard met eigen keys |
+| 2D | Admin inloggen (+2FA) | Dashboard met alle keys |
 | 3 | Key aanmaken | Key eenmalig zichtbaar in banner |
 | 4 | Geen/verkeerde key | 401 |
 | 5 | Geldige key, toegestaan domein | 200 of 502 |
 | 5 | Geldige key, geblokkeerd domein | 403 |
-| 6 | Domein toevoegen/verwijderen via UI | Access control direct actief |
+| 6 | Domein niet aan account gekoppeld | 403 |
 | 7 | IP toevoegen → eigen IP geblokkeerd | 401 |
 | 7 | IP verwijderen → key werkt weer | 200 |
 | 8 | Key intrekken | 401 "revoked" |
 | 8 | Key reactiveren | 200 |
 | 9 | Audit log | Alle requests zichtbaar |
-| 10 | Key verwijderen | 401 "Invalid API key" |
+| 10 | Key verwijderen (admin) | 401 "Invalid API key" |
