@@ -39,6 +39,7 @@ Client ──[X-API-Key]──► proxy.py (before_request auth)
 ## Requirements
 
 - Python 3.10+
+- [PowerDNS-Admin](https://github.com/PowerDNS-Admin/PowerDNS-Admin) — the proxy shares its MySQL database and user/account tables
 - MySQL (shared with PowerDNS-Admin)
 - PowerDNS Authoritative Server with HTTP API enabled
 
