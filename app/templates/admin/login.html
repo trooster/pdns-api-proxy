@@ -1,0 +1,48 @@
+{% extends "admin/base.html" %}
+{% block title %}Inloggen{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+  <div class="col-sm-10 col-md-6 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <div class="text-center mb-4">
+          <i class="bi bi-shield-lock fs-1 text-dark"></i>
+          <h4 class="mt-2 mb-0">PDNS API Proxy</h4>
+          <p class="text-muted small">Beheerdersinlog</p>
+        </div>
+
+        <form method="POST" action="{{ url_for('auth.login') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+
+          <div class="mb-3">
+            <label for="username" class="form-label">Gebruikersnaam</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="bi bi-person"></i></span>
+              <input type="text" class="form-control" id="username" name="username"
+                     autocomplete="username" autofocus required>
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <label for="password" class="form-label">Wachtwoord</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="bi bi-lock"></i></span>
+              <input type="password" class="form-control" id="password" name="password"
+                     autocomplete="current-password" required>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-dark w-100">
+            <i class="bi bi-box-arrow-in-right me-1"></i>Inloggen
+          </button>
+        </form>
+
+        <p class="text-muted small text-center mt-3 mb-0">
+          Inloggen met je PowerDNS-Admin beheerdersaccount
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

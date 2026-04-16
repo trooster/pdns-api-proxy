@@ -1,0 +1,16 @@
+services:
+  pdns-api-proxy:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - PDNS_API_URL=${PDNS_API_URL}
+      - PDNS_API_KEY=${PDNS_API_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

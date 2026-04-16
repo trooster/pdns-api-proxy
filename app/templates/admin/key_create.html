@@ -1,0 +1,107 @@
+{% extends "admin/base.html" %}
+{% block title %}Nieuwe API key{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+  <a href="{{ url_for('admin_ui.dashboard') }}" class="btn btn-sm btn-outline-secondary me-3">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="mb-0"><i class="bi bi-plus-circle me-2"></i>Nieuwe API key aanmaken</h4>
+</div>
+
+<div class="row">
+  <div class="col-lg-8">
+    <form method="POST" action="{{ url_for('admin_ui.key_create') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">Algemeen</div>
+        <div class="card-body">
+
+          <div class="mb-3">
+            <label for="pdns_user_id" class="form-label">
+              PowerDNS-Admin gebruiker ID <span class="text-danger">*</span>
+            </label>
+            <input type="number" class="form-control" id="pdns_user_id" name="pdns_user_id"
+                   min="1" required placeholder="bijv. 3">
+            <div class="form-text">Het ID uit de <code>user</code> tabel van PowerDNS-Admin.</div>
+          </div>
+
+          <div class="mb-3">
+            <label for="description" class="form-label">Omschrijving</label>
+            <input type="text" class="form-control" id="description" name="description"
+                   maxlength="255" placeholder="bijv. Klant X – productie">
+          </div>
+
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">
+          Domein allowlist
+          <span class="text-muted fw-normal small ms-2">selecteer welke domeinen deze key mag benaderen</span>
+        </div>
+        <div class="card-body">
+          {% if domains %}
+            <div style="max-height: 260px; overflow-y: auto;">
+              {% for domain in domains %}
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox"
+                       name="domain_ids" value="{{ domain.id }}"
+                       id="domain_{{ domain.id }}">
+                <label class="form-check-label font-monospace" for="domain_{{ domain.id }}">
+                  {{ domain.name }}
+                  <span class="text-muted">(#{{ domain.id }})</span>
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="text-muted mb-0">
+              <i class="bi bi-info-circle me-1"></i>
+              Geen domeinen gevonden in de database.
+              Je kunt later domeinen toevoegen via de key-detailpagina.
+            </p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">
+          IP allowlist
+          <span class="text-muted fw-normal small ms-2">leeg = alle IPs toegestaan</span>
+        </div>
+        <div class="card-body">
+          <label for="ip_addresses" class="form-label">IP adressen / CIDR blokken</label>
+          <textarea class="form-control font-monospace" id="ip_addresses" name="ip_addresses"
+                    rows="4" placeholder="192.168.1.10&#10;10.0.0.0/24&#10;2001:db8::1"></textarea>
+          <div class="form-text">Één per regel. CIDR notatie ondersteund (bijv. <code>10.0.0.0/24</code>).</div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-dark">
+          <i class="bi bi-key me-1"></i>Key aanmaken
+        </button>
+        <a href="{{ url_for('admin_ui.dashboard') }}" class="btn btn-outline-secondary">Annuleren</a>
+      </div>
+
+    </form>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card border-warning shadow-sm">
+      <div class="card-header bg-warning bg-opacity-25 fw-semibold">
+        <i class="bi bi-exclamation-triangle me-1"></i>Let op
+      </div>
+      <div class="card-body small">
+        <p>De volledige API key wordt <strong>maar één keer getoond</strong> na het aanmaken.</p>
+        <p>Sla de key direct op in een wachtwoordmanager of geef hem direct door aan de klant.</p>
+        <p class="mb-0">De key ziet er zo uit:<br>
+          <code>pda_live_&lt;32 tekens&gt;</code>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

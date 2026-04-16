@@ -1,0 +1,101 @@
+{% extends "admin/base.html" %}
+{% block title %}Audit log — {{ key.key_prefix }}…{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+  <a href="{{ url_for('admin_ui.key_detail', key_id=key.id) }}"
+     class="btn btn-sm btn-outline-secondary me-3">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="mb-0">
+    <i class="bi bi-journal-text me-2"></i>
+    Audit log — <code>{{ key.key_prefix }}…</code>
+  </h4>
+</div>
+
+<div class="card shadow-sm">
+  {% if logs.items %}
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Tijdstip</th>
+          <th>Methode</th>
+          <th>Pad</th>
+          <th>Status</th>
+          <th>Client IP</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs.items %}
+        <tr>
+          <td class="text-muted small text-nowrap">
+            {{ log.timestamp.strftime('%d-%m-%Y %H:%M:%S') }}
+          </td>
+          <td>
+            {% set method_colors = {'GET': 'success', 'POST': 'primary', 'PATCH': 'warning', 'PUT': 'warning', 'DELETE': 'danger'} %}
+            <span class="badge bg-{{ method_colors.get(log.method, 'secondary') }}">
+              {{ log.method }}
+            </span>
+          </td>
+          <td class="font-monospace small">{{ log.path }}</td>
+          <td>
+            {% if log.response_status < 300 %}
+              <span class="badge bg-success">{{ log.response_status }}</span>
+            {% elif log.response_status < 400 %}
+              <span class="badge bg-info">{{ log.response_status }}</span>
+            {% elif log.response_status < 500 %}
+              <span class="badge bg-warning text-dark">{{ log.response_status }}</span>
+            {% else %}
+              <span class="badge bg-danger">{{ log.response_status }}</span>
+            {% endif %}
+          </td>
+          <td class="font-monospace small">{{ log.client_ip }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Pagination #}
+  {% if logs.pages > 1 %}
+  <div class="card-footer d-flex justify-content-between align-items-center">
+    <span class="text-muted small">{{ logs.total }} regels totaal</span>
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        {% if logs.has_prev %}
+        <li class="page-item">
+          <a class="page-link" href="?page={{ logs.prev_num }}">
+            <i class="bi bi-chevron-left"></i>
+          </a>
+        </li>
+        {% endif %}
+        {% for p in logs.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+          {% if p %}
+          <li class="page-item {% if p == logs.page %}active{% endif %}">
+            <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+          </li>
+          {% else %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        {% if logs.has_next %}
+        <li class="page-item">
+          <a class="page-link" href="?page={{ logs.next_num }}">
+            <i class="bi bi-chevron-right"></i>
+          </a>
+        </li>
+        {% endif %}
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-journal-text fs-1 d-block mb-2"></i>
+    Nog geen requests gelogd voor deze key.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
