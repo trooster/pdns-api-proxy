@@ -1,7 +1,15 @@
 import secrets
+from urllib.parse import urlparse, urljoin
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from flask_login import login_user, logout_user, login_required, current_user
 from app.models.pdns_admin import PdnsUser
+
+
+def _is_safe_redirect_url(target: str) -> bool:
+    """Geeft True als target een relatieve URL is op hetzelfde domein."""
+    ref = urlparse(request.host_url)
+    test = urlparse(urljoin(request.host_url, target))
+    return test.scheme in ("http", "https") and ref.netloc == test.netloc
 
 bp = Blueprint("auth", __name__)
 
@@ -51,7 +59,9 @@ def login():
 
         login_user(user, remember=False)
         next_page = request.args.get("next")
-        return redirect(next_page or url_for("admin_ui.dashboard"))
+        if not next_page or not _is_safe_redirect_url(next_page):
+            next_page = url_for("admin_ui.dashboard")
+        return redirect(next_page)
 
     return render_template("admin/login.html", csrf=csrf)
 

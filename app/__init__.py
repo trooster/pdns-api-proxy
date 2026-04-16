@@ -1,6 +1,7 @@
 from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
+from werkzeug.middleware.proxy_fix import ProxyFix
 from app.config import Config
 
 db = SQLAlchemy()
@@ -23,6 +24,10 @@ def create_app(config_class=Config, **config_overrides):
 
     db.init_app(flask_app)
     login_manager.init_app(flask_app)
+
+    proxy_count = flask_app.config.get("PROXY_COUNT", 1)
+    if proxy_count > 0:
+        flask_app.wsgi_app = ProxyFix(flask_app.wsgi_app, x_for=proxy_count, x_proto=proxy_count)
 
     with flask_app.app_context():
         from app import models  # noqa: F401 - register models with SQLAlchemy

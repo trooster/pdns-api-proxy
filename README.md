@@ -89,6 +89,7 @@ gunicorn -w 4 "app:create_app()"
 | `PDNS_API_URL` | PowerDNS API base URL | `http://127.0.0.1:8081` |
 | `PDNS_API_KEY` | PowerDNS internal API key | `changeme` |
 | `SECRET_KEY` | Flask session secret | (random string) |
+| `PROXY_COUNT` | Number of trusted reverse proxies in front of this app (used for `X-Forwarded-For`). Set to `0` if the app is exposed directly without a proxy. Default: `1` | `1` |
 
 ## API Reference
 
@@ -102,8 +103,8 @@ The proxy mirrors the PowerDNS REST API URL structure. Zone IDs are zone names w
 |---|---|---|
 | `GET` | `/api/v1/servers` | List servers (proxied from PDNS) |
 | `GET` | `/api/v1/servers/<server_id>` | Server info (proxied from PDNS) |
-| `GET` | `/api/v1/servers/<server_id>/config` | Server config (proxied from PDNS) |
-| `GET` | `/api/v1/servers/<server_id>/statistics` | Statistics (proxied from PDNS) |
+| `GET` | `/api/v1/servers/<server_id>/config` | **Blocked** — admin only |
+| `GET` | `/api/v1/servers/<server_id>/statistics` | **Blocked** — admin only |
 
 ### Zones
 
@@ -114,19 +115,20 @@ The proxy mirrors the PowerDNS REST API URL structure. Zone IDs are zone names w
 | `GET` | `/api/v1/servers/<server_id>/zones/<zone_id>` | Zone details incl. RRsets |
 | `PUT` | `/api/v1/servers/<server_id>/zones/<zone_id>` | Replace zone |
 | `PATCH` | `/api/v1/servers/<server_id>/zones/<zone_id>` | Update zone RRsets |
-| `DELETE` | `/api/v1/servers/<server_id>/zones/<zone_id>` | Delete zone |
+| `DELETE` | `/api/v1/servers/<server_id>/zones/<zone_id>` | **Blocked** — manage zones via PowerDNS-Admin |
 
 ### Zone sub-resources
 
-All zone sub-resources are proxied with the same access control applied to the parent zone:
+Zone sub-resources are proxied with the same access control applied to the parent zone. Administrative sub-resources are blocked:
 
 | Method | Path | Description |
 |---|---|---|
-| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/notify` | Send NOTIFY |
-| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/export` | Export zone |
-| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/rectify` | Rectify zone |
-| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/metadata` | Zone metadata |
-| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/cryptokeys` | DNSSEC keys |
+| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/rrsets` | Manage RRsets (allowed) |
+| `GET` | `/api/v1/servers/<server_id>/zones/<zone_id>/export` | Export zone (allowed) |
+| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/notify` | **Blocked** — admin only |
+| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/rectify` | **Blocked** — admin only |
+| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/metadata` | **Blocked** — admin only |
+| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/cryptokeys` | **Blocked** — admin only |
 
 ### Health
 
@@ -174,7 +176,7 @@ curl -X PUT \
 | Status | Meaning |
 |---|---|
 | `401` | Missing, invalid, or revoked API key; IP not on allowlist |
-| `403` | Zone does not belong to this key's account; or zone creation attempted |
+| `403` | Zone does not belong to this key's account; or blocked endpoint (zone creation/deletion, config, statistics, cryptokeys, metadata, notify, rectify) |
 | `502` | PowerDNS API unreachable or timed out |
 
 ## Admin UI
@@ -191,7 +193,7 @@ Available at `/admin/` — requires a PowerDNS-Admin user with the **Administrat
 
 ## Admin REST API
 
-> **Note:** The admin REST API (`/admin/api-keys/*`) currently has a placeholder authentication decorator. Do not expose it publicly until proper authentication is implemented.
+The admin REST API (`/admin/api-keys/*`) requires an active Flask-Login session with the **Administrator** role (same session as the admin UI). Log in at `/admin/login` first.
 
 | Method | Path | Description |
 |---|---|---|
@@ -206,8 +208,15 @@ Available at `/admin/` — requires a PowerDNS-Admin user with the **Administrat
 
 ### Create key via REST API
 
+Requires an active admin session cookie (log in at `/admin/login` first):
+
 ```bash
-curl -X POST http://localhost:5000/admin/api-keys \
+# Log in and save the session cookie
+curl -c cookies.txt -X POST http://localhost:5000/admin/login \
+     -d "username=admin&password=secret&csrf_token=<token>"
+
+# Create a key using the session cookie
+curl -b cookies.txt -X POST http://localhost:5000/admin/api-keys \
      -H "Content-Type: application/json" \
      -d '{
        "account_id": 1,
@@ -236,7 +245,7 @@ Response (the `api_key` field is shown **once only**):
 - Add at least one entry to allow requests. Use `0.0.0.0/0` to allow all IPs.
 - Bare IP addresses (e.g. `192.168.1.10`) are stored as `/32` (IPv4) or `/128` (IPv6) automatically.
 - CIDR notation is supported: `10.0.0.0/8` allows the entire `10.0.0.0/8` range.
-- Client IP is taken from the `X-Forwarded-For` header (first value), falling back to `remote_addr`.
+- Client IP is determined by Werkzeug's `ProxyFix` middleware based on the `PROXY_COUNT` setting. Set `PROXY_COUNT=0` if the app is exposed directly without a reverse proxy; set it to the number of trusted proxies otherwise. This prevents IP spoofing via a forged `X-Forwarded-For` header.
 
 ## Database Schema
 

@@ -1,5 +1,7 @@
+import ipaddress
 from functools import wraps
 from flask import Blueprint, request, jsonify
+from flask_login import current_user
 from app import db
 from app.models.api_key import ApiKey, ApiKeyIpAllowlist
 from app.models.audit_log import AuditLog
@@ -9,15 +11,32 @@ bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
 def admin_required(f):
-    """Placeholder: vervang met echte admin session check."""
+    """Vereist een ingelogde Administrator-gebruiker; geeft anders JSON 401/403."""
     @wraps(f)
     def decorated(*args, **kwargs):
-        # TODO: Implement admin session check via PowerDNS-Admin sessie
+        if not current_user.is_authenticated:
+            return jsonify({"error": "Authentication required"}), 401
+        if not current_user.is_admin:
+            return jsonify({"error": "Administrator access required"}), 403
         return f(*args, **kwargs)
     return decorated
 
 
+def _validate_ip_entry(ip_address_str, cidr_mask=None):
+    """
+    Valideer een IP-adres en optioneel CIDR-masker.
+    Gooit ValueError bij ongeldige invoer.
+    """
+    addr = ipaddress.ip_address(ip_address_str)
+    if cidr_mask is not None:
+        max_mask = 32 if addr.version == 4 else 128
+        cidr = int(cidr_mask)
+        if not (0 <= cidr <= max_mask):
+            raise ValueError(f"Ongeldig CIDR masker: {cidr_mask}")
+
+
 @bp.route("/api-keys", methods=["GET"])
+@admin_required
 def list_keys():
     """Lijst alle API keys."""
     keys = ApiKey.query.all()
@@ -32,6 +51,7 @@ def list_keys():
 
 
 @bp.route("/api-keys", methods=["POST"])
+@admin_required
 def create_key():
     """Maak nieuwe API key aan (handmatig door admin)."""
     data = request.get_json() or {}
@@ -52,6 +72,11 @@ def create_key():
     db.session.flush()  # get new_key.id before adding relations
 
     for ip_entry in data.get("ip_allowlist", []):
+        try:
+            _validate_ip_entry(ip_entry.get("ip_address", ""), ip_entry.get("cidr_mask"))
+        except (ValueError, KeyError) as e:
+            db.session.rollback()
+            return jsonify({"error": f"Ongeldig IP adres in allowlist: {e}"}), 400
         db.session.add(ApiKeyIpAllowlist(
             api_key_id=new_key.id,
             ip_address=ip_entry["ip_address"],
@@ -70,6 +95,7 @@ def create_key():
 
 
 @bp.route("/api-keys/<int:key_id>", methods=["GET"])
+@admin_required
 def get_key(key_id):
     """Details van één API key."""
     key = db.session.get(ApiKey, key_id)
@@ -91,6 +117,7 @@ def get_key(key_id):
 
 
 @bp.route("/api-keys/<int:key_id>", methods=["PUT"])
+@admin_required
 def update_key(key_id):
     """Update API key (description, is_active)."""
     key = db.session.get(ApiKey, key_id)
@@ -108,6 +135,7 @@ def update_key(key_id):
 
 
 @bp.route("/api-keys/<int:key_id>", methods=["DELETE"])
+@admin_required
 def delete_key(key_id):
     """Verwijder API key."""
     key = db.session.get(ApiKey, key_id)
@@ -119,6 +147,7 @@ def delete_key(key_id):
 
 
 @bp.route("/api-keys/<int:key_id>/ips", methods=["POST"])
+@admin_required
 def add_ip(key_id):
     """IP toevoegen aan allowlist."""
     if db.session.get(ApiKey, key_id) is None:
@@ -127,6 +156,11 @@ def add_ip(key_id):
 
     if "ip_address" not in data:
         return jsonify({"error": "ip_address is required"}), 400
+
+    try:
+        _validate_ip_entry(data["ip_address"], data.get("cidr_mask"))
+    except ValueError as e:
+        return jsonify({"error": f"Ongeldig IP adres: {e}"}), 400
 
     entry = ApiKeyIpAllowlist(
         api_key_id=key_id,
@@ -139,6 +173,7 @@ def add_ip(key_id):
 
 
 @bp.route("/api-keys/<int:key_id>/ips/<int:ip_id>", methods=["DELETE"])
+@admin_required
 def remove_ip(key_id, ip_id):
     """IP verwijderen uit allowlist."""
     entry = ApiKeyIpAllowlist.query.filter_by(id=ip_id, api_key_id=key_id).first_or_404()
@@ -148,6 +183,7 @@ def remove_ip(key_id, ip_id):
 
 
 @bp.route("/api-keys/<int:key_id>/audit", methods=["GET"])
+@admin_required
 def get_audit_log(key_id):
     """Audit log voor specifieke key."""
     if db.session.get(ApiKey, key_id) is None:
