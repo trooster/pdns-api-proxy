@@ -1,5 +1,4 @@
 import pytest
-import hashlib
 from unittest.mock import patch, MagicMock
 from app import create_app, db
 from app.models.api_key import ApiKey, ApiKeyIpAllowlist
@@ -37,7 +36,7 @@ def api_key_with_zone(app):
 
         key_str = "pda_live_testkey00000000000000000"
         key = ApiKey(
-            key_hash=hashlib.sha256(key_str.encode()).hexdigest(),
+            key_hash=ApiKey.hash_key(key_str),
             key_prefix="pda_live_test",
             account_id=1,
             created_by=1,

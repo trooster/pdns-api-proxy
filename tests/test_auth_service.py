@@ -26,7 +26,8 @@ def test_generate_api_key():
 
     assert key.startswith("pda_live_")
     assert len(key) == 41  # "pda_live_" (9) + 32 hex chars
-    assert len(key_hash) == 64  # SHA-256 hex
+    assert key_hash.startswith("$argon2id$")
+    assert ApiKey.verify_key(key, key_hash)
     assert prefix.startswith("pda_live_")
     assert len(prefix) == 13  # "pda_live_" (9) + 4 chars
 
