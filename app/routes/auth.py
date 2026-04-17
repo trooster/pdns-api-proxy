@@ -5,11 +5,32 @@ from flask_login import login_user, logout_user, login_required, current_user
 from app.models.pdns_admin import PdnsUser
 
 
-def _is_safe_redirect_url(target: str) -> bool:
-    """Geeft True als target een relatieve URL is op hetzelfde domein."""
+def _safe_redirect_path(target: str) -> str | None:
+    """Return a same-origin path reconstructed from target, or None if unsafe.
+
+    Rejects absolute URLs, protocol-relative URLs, backslash tricks, and any
+    value whose resolved netloc does not match the current host.
+    """
+    if not target or not isinstance(target, str):
+        return None
+    if not target.startswith("/"):
+        return None
+    if target.startswith("//") or target.startswith("/\\"):
+        return None
+    if "\\" in target:
+        return None
+
     ref = urlparse(request.host_url)
     test = urlparse(urljoin(request.host_url, target))
-    return test.scheme in ("http", "https") and ref.netloc == test.netloc
+    if test.scheme not in ("http", "https") or test.netloc != ref.netloc:
+        return None
+
+    safe = test.path or "/"
+    if test.query:
+        safe += "?" + test.query
+    if test.fragment:
+        safe += "#" + test.fragment
+    return safe
 
 bp = Blueprint("auth", __name__)
 
@@ -54,10 +75,8 @@ def login():
             return redirect(url_for("auth.login_2fa"))
 
         login_user(user, remember=False)
-        next_page = request.args.get("next")
-        if not next_page or not _is_safe_redirect_url(next_page):
-            next_page = url_for("admin_ui.dashboard")
-        return redirect(next_page)
+        safe_next = _safe_redirect_path(request.args.get("next", ""))
+        return redirect(safe_next or url_for("admin_ui.dashboard"))
 
     return render_template("admin/login.html", csrf=csrf)
 
