@@ -1,3 +1,4 @@
+import html
 import ipaddress
 from functools import wraps
 from flask import Blueprint, request, jsonify
@@ -76,7 +77,7 @@ def create_key():
             _validate_ip_entry(ip_entry.get("ip_address", ""), ip_entry.get("cidr_mask"))
         except (ValueError, KeyError) as e:
             db.session.rollback()
-            return jsonify({"error": f"Ongeldig IP adres in allowlist: {e}"}), 400
+            return jsonify({"error": f"Ongeldig IP adres in allowlist: {html.escape(str(e))}"}), 400
         db.session.add(ApiKeyIpAllowlist(
             api_key_id=new_key.id,
             ip_address=ip_entry["ip_address"],
@@ -160,7 +161,7 @@ def add_ip(key_id):
     try:
         _validate_ip_entry(data["ip_address"], data.get("cidr_mask"))
     except ValueError as e:
-        return jsonify({"error": f"Ongeldig IP adres: {e}"}), 400
+        return jsonify({"error": f"Ongeldig IP adres: {html.escape(str(e))}"}), 400
 
     entry = ApiKeyIpAllowlist(
         api_key_id=key_id,

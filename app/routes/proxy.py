@@ -1,3 +1,4 @@
+import html
 from flask import Blueprint, request, jsonify, g
 from app.services.proxy_service import ProxyService
 from app.services.audit_service import AuditService
@@ -35,13 +36,30 @@ def _audit(method, path, status, body=None):
     )
 
 
+def _sanitize_response(data):
+    """Recursively HTML-escape all strings in a proxied response.
+
+    The proxy forwards upstream PDNS payloads that can reflect
+    client-supplied values (server_id, zone_id, subpath, rrset names, ...).
+    Escaping every string value before serialization prevents reflected XSS
+    (CWE-79) regardless of how the consumer renders the payload.
+    """
+    if isinstance(data, str):
+        return html.escape(data)
+    if isinstance(data, dict):
+        return {k: _sanitize_response(v) for k, v in data.items()}
+    if isinstance(data, (list, tuple)):
+        return [_sanitize_response(item) for item in data]
+    return data
+
+
 def _proxy(method, pdns_path, json_data=None):
     """Forward naar PDNS en geef (flask response, status_code) terug."""
     service = ProxyService()
     status, data, error = service.forward_request(method, pdns_path, json_data=json_data)
     if error:
-        return jsonify({"error": error}), status
-    return jsonify(data), status
+        return jsonify({"error": html.escape(error)}), status
+    return jsonify(_sanitize_response(data)), status
 
 
 # ── Server-niveau ─────────────────────────────────────────────────────────────
@@ -78,7 +96,7 @@ def list_zones(server_id):
 
     if error:
         _audit("GET", request.path, status)
-        return jsonify({"error": error}), status
+        return jsonify({"error": html.escape(error)}), status
 
     # Filter: alleen zones die aan het account gekoppeld zijn
     allowed_domains = AuthService.get_allowed_domains(g.api_key.account_id)
@@ -93,7 +111,7 @@ def list_zones(server_id):
         data["zones"] = [z for z in data["zones"] if _allowed(z)]
 
     _audit("GET", request.path, status)
-    return jsonify(data), status
+    return jsonify(_sanitize_response(data)), status
 
 
 # Zone aanmaken is niet toegestaan via de proxy (beheer via PowerDNS-Admin)
@@ -120,8 +138,8 @@ def zone(server_id, zone_id):
     _audit(request.method, request.path, status, body)
 
     if error:
-        return jsonify({"error": error}), status
-    return jsonify(data), status
+        return jsonify({"error": html.escape(error)}), status
+    return jsonify(_sanitize_response(data)), status
 
 
 @bp.route("/servers/<server_id>/zones/<string:zone_id>", methods=["DELETE"])
@@ -153,7 +171,7 @@ def zone_subresource(server_id, zone_id, subpath):
     _audit(request.method, request.path, status, body)
 
     if error:
-        return jsonify({"error": error}), status
+        return jsonify({"error": html.escape(error)}), status
     if not data:
         return "", status
-    return jsonify(data), status
+    return jsonify(_sanitize_response(data)), status

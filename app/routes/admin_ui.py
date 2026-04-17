@@ -2,6 +2,7 @@ import ipaddress
 import secrets
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, abort, jsonify
 from flask_login import login_required, current_user
+from markupsafe import Markup, escape as _escape
 from sqlalchemy import func
 from app import db
 from app.models.api_key import ApiKey, ApiKeyIpAllowlist
@@ -174,7 +175,7 @@ def key_create():
             try:
                 ip_str, cidr_mask = _parse_ip_entry(ip_line)
             except ValueError:
-                flash(f"Ongeldig IP adres: {ip_line}", "danger")
+                flash(Markup("Ongeldig IP adres: {}").format(_escape(ip_line)), "danger")
                 db.session.rollback()
                 return render_template("admin/key_create.html", accounts=accounts, csrf=csrf)
             db.session.add(ApiKeyIpAllowlist(
@@ -282,7 +283,7 @@ def ip_add(key_id):
     try:
         ip_address, cidr_mask = _parse_ip_entry(ip_cidr)
     except ValueError:
-        flash(f"Ongeldig IP adres of CIDR notatie: {ip_cidr}", "danger")
+        flash(Markup("Ongeldig IP adres of CIDR notatie: {}").format(_escape(ip_cidr)), "danger")
         return redirect(url_for("admin_ui.key_detail", key_id=key_id))
     db.session.add(ApiKeyIpAllowlist(
         api_key_id=key_id,
