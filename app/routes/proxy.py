@@ -156,7 +156,7 @@ _BLOCKED_ZONE_SUBPATHS = {"cryptokeys", "metadata", "notify", "rectify"}
 def zone_subresource(server_id, zone_id, subpath):
     top = subpath.split("/")[0].lower()
     if top in _BLOCKED_ZONE_SUBPATHS:
-        return jsonify({"error": f"Access to /{top} is not allowed via this API"}), 403
+        return jsonify({"error": "Access to this zone sub-resource is not allowed via this API"}), 403
 
     if not AuthService.check_domain_access(g.api_key.account_id, zone_id):
         return jsonify({"error": "Access denied to this zone"}), 403
