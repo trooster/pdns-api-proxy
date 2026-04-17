@@ -35,6 +35,15 @@ def _safe_redirect_path(target: str) -> str | None:
 bp = Blueprint("auth", __name__)
 
 
+def _next_redirect_url(next_key: str | None) -> str:
+    """Resolve post-login redirect from an allowlisted key."""
+    allowed_redirects = {
+        "dashboard": "admin_ui.dashboard",
+    }
+    endpoint = allowed_redirects.get((next_key or "").strip(), "admin_ui.dashboard")
+    return url_for(endpoint)
+
+
 def _csrf_token():
     if "csrf_token" not in session:
         session["csrf_token"] = secrets.token_hex(32)
@@ -75,8 +84,8 @@ def login():
             return redirect(url_for("auth.login_2fa"))
 
         login_user(user, remember=False)
-        safe_next = _safe_redirect_path(request.args.get("next", ""))
-        return redirect(safe_next or url_for("admin_ui.dashboard"))
+        next_url = _next_redirect_url(request.args.get("next"))
+        return redirect(next_url)
 
     return render_template("admin/login.html", csrf=csrf)
 
