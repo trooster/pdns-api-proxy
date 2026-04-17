@@ -1,12 +1,16 @@
 from app import db
 from datetime import datetime
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError, InvalidHash
+
+_ph = PasswordHasher()
 
 
 class ApiKey(db.Model):
     __tablename__ = "api_keys"
 
     id = db.Column(db.Integer, primary_key=True)
-    key_hash = db.Column(db.String(64), unique=True, nullable=False)
+    key_hash = db.Column(db.String(255), unique=True, nullable=False)
     key_prefix = db.Column(db.String(13), nullable=False)
     description = db.Column(db.String(255))
     account_id = db.Column(db.Integer, nullable=False)
@@ -20,8 +24,14 @@ class ApiKey(db.Model):
 
     @staticmethod
     def hash_key(api_key: str) -> str:
-        import hashlib
-        return hashlib.sha256(api_key.encode()).hexdigest()
+        return _ph.hash(api_key)
+
+    @staticmethod
+    def verify_key(api_key: str, stored_hash: str) -> bool:
+        try:
+            return _ph.verify(stored_hash, api_key)
+        except (VerifyMismatchError, InvalidHash):
+            return False
 
 
 class ApiKeyIpAllowlist(db.Model):

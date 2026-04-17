@@ -1,5 +1,4 @@
 import secrets
-import hashlib
 from typing import Optional, Tuple
 from app import db
 from app.models.api_key import ApiKey, ApiKeyIpAllowlist
@@ -30,14 +29,14 @@ class AuthService:
         if not api_key:
             return False, None, "API key required"
 
-        key_hash = ApiKey.hash_key(api_key)
-        key_obj = ApiKey.query.filter_by(key_hash=key_hash).first()
+        key_obj = None
+        for candidate in ApiKey.query.filter_by(is_active=True).all():
+            if ApiKey.verify_key(api_key, candidate.key_hash):
+                key_obj = candidate
+                break
 
         if not key_obj:
             return False, None, "Invalid API key"
-
-        if not key_obj.is_active:
-            return False, None, "API key has been revoked"
 
         # IP check
         ip_entries = [
