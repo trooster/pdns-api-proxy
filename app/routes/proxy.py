@@ -1,10 +1,36 @@
 import html
+import re
 from flask import Blueprint, request, jsonify, g
 from app.services.proxy_service import ProxyService
 from app.services.audit_service import AuditService
 from app.services.auth_service import AuthService
 
 bp = Blueprint("proxy", __name__, url_prefix="/api/v1")
+
+
+# Strict allowlists for URL path parameters that are forwarded to the upstream
+# PDNS API. Rejecting anything outside these character sets at the entry point
+# cuts taint from reflected-XSS (CWE-79 / CWE-116) flows at the source.
+_VALID_PDNS_ID = re.compile(r"\A[A-Za-z0-9._-]+\Z")
+_VALID_PDNS_SUBPATH = re.compile(r"\A[A-Za-z0-9._/-]+\Z")
+
+
+def _reject_invalid_path(*parts):
+    """Return a 400 response tuple if any path component is invalid, else None.
+
+    Each part is (value, pattern). Patterns are pre-compiled re.Pattern objects.
+    """
+    for value, pattern in parts:
+        if not isinstance(value, str) or not pattern.match(value):
+            return jsonify({"error": "Invalid path parameter"}), 400
+    return None
+
+
+@bp.after_request
+def _set_security_headers(response):
+    """Defense-in-depth: prevent MIME sniffing of proxy responses."""
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    return response
 
 
 @bp.before_request
@@ -73,6 +99,9 @@ def list_servers():
 
 @bp.route("/servers/<server_id>", methods=["GET"])
 def get_server(server_id):
+    invalid = _reject_invalid_path((server_id, _VALID_PDNS_ID))
+    if invalid:
+        return invalid
     return _proxy("GET", f"/api/v1/servers/{server_id}")
 
 
@@ -91,6 +120,9 @@ def get_statistics(server_id):
 
 @bp.route("/servers/<server_id>/zones", methods=["GET"])
 def list_zones(server_id):
+    invalid = _reject_invalid_path((server_id, _VALID_PDNS_ID))
+    if invalid:
+        return invalid
     service = ProxyService()
     status, data, error = service.forward_request("GET", f"/api/v1/servers/{server_id}/zones")
 
@@ -125,6 +157,12 @@ def create_zone(server_id):
 @bp.route("/servers/<server_id>/zones/<string:zone_id>",
           methods=["GET", "PUT", "PATCH"])
 def zone(server_id, zone_id):
+    invalid = _reject_invalid_path(
+        (server_id, _VALID_PDNS_ID),
+        (zone_id, _VALID_PDNS_ID),
+    )
+    if invalid:
+        return invalid
     if not AuthService.check_domain_access(g.api_key.account_id, zone_id):
         return jsonify({"error": "Access denied to this zone"}), 403
 
@@ -154,6 +192,14 @@ _BLOCKED_ZONE_SUBPATHS = {"cryptokeys", "metadata", "notify", "rectify"}
 @bp.route("/servers/<server_id>/zones/<string:zone_id>/<path:subpath>",
           methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 def zone_subresource(server_id, zone_id, subpath):
+    invalid = _reject_invalid_path(
+        (server_id, _VALID_PDNS_ID),
+        (zone_id, _VALID_PDNS_ID),
+        (subpath, _VALID_PDNS_SUBPATH),
+    )
+    if invalid:
+        return invalid
+
     top = subpath.split("/")[0].lower()
     if top in _BLOCKED_ZONE_SUBPATHS:
         return jsonify({"error": "Access to this zone sub-resource is not allowed via this API"}), 403
@@ -173,5 +219,5 @@ def zone_subresource(server_id, zone_id, subpath):
     if error:
         return jsonify({"error": html.escape(error)}), status
     if not data:
-        return "", status
+        return "", status, {"Content-Type": "application/json"}
     return jsonify(_sanitize_response(data)), status
