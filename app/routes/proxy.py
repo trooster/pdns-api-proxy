@@ -219,5 +219,5 @@ def zone_subresource(server_id, zone_id, subpath):
     if error:
         return jsonify({"error": html.escape(error)}), status
     if not data:
-        return "", status, {"Content-Type": "application/json"}
+        return jsonify({}), status
     return jsonify(_sanitize_response(data)), status
