@@ -196,7 +196,7 @@ def test_admin_api():
 
     check(api_key.startswith("pda_live_"),
           f"api_key heeft correct formaat (pda_live_…)",
-          f"Onverwacht key formaat: {api_key}")
+          f"Onverwacht key formaat (prefix: {api_key[:9]!r}, lengte: {len(api_key)})")
 
     check(len(api_key) == 41,
           "api_key lengte correct (41 tekens)",
