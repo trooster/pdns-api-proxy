@@ -73,11 +73,12 @@ def create_key():
     db.session.flush()  # get new_key.id before adding relations
 
     for ip_entry in data.get("ip_allowlist", []):
+        ip_value = ip_entry.get("ip_address", "") if isinstance(ip_entry, dict) else ""
         try:
-            _validate_ip_entry(ip_entry.get("ip_address", ""), ip_entry.get("cidr_mask"))
-        except (ValueError, KeyError) as e:
+            _validate_ip_entry(ip_value, ip_entry.get("cidr_mask") if isinstance(ip_entry, dict) else None)
+        except (ValueError, KeyError, AttributeError):
             db.session.rollback()
-            return jsonify({"error": f"Ongeldig IP adres in allowlist: {html.escape(str(e))}"}), 400
+            return jsonify({"error": f"Ongeldig IP adres in allowlist: {html.escape(str(ip_value))}"}), 400
         db.session.add(ApiKeyIpAllowlist(
             api_key_id=new_key.id,
             ip_address=ip_entry["ip_address"],
@@ -160,8 +161,8 @@ def add_ip(key_id):
 
     try:
         _validate_ip_entry(data["ip_address"], data.get("cidr_mask"))
-    except ValueError as e:
-        return jsonify({"error": f"Ongeldig IP adres: {html.escape(str(e))}"}), 400
+    except ValueError:
+        return jsonify({"error": f"Ongeldig IP adres: {html.escape(str(data['ip_address']))}"}), 400
 
     entry = ApiKeyIpAllowlist(
         api_key_id=key_id,

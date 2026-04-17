@@ -3,6 +3,9 @@ from typing import Optional, Dict, Any, Tuple
 from flask import current_app
 
 
+_GENERIC_UPSTREAM_ERROR = "Upstream error"
+
+
 class ProxyService:
 
     def __init__(self):
@@ -52,5 +55,8 @@ class ProxyService:
             return 502, None, "Upstream DNS server timeout"
         except requests.ConnectionError:
             return 502, None, "Upstream DNS server unavailable"
-        except Exception as e:
-            return 502, None, f"Upstream error: {str(e)}"
+        except Exception:
+            # Log full traceback server-side; return generic message to the
+            # client to avoid leaking internal details (CWE-209).
+            current_app.logger.exception("Upstream request to PDNS failed")
+            return 502, None, _GENERIC_UPSTREAM_ERROR
