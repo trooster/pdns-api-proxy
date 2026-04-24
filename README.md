@@ -206,8 +206,10 @@ Path components are validated per segment; `.`, `..`, and empty segments are rej
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/ping` | Liveness check (no auth required) |
-| `GET` | `/health` | Health check (no auth required) |
+| `GET` | `/ping` | Liveness — returns `200 {"status":"ok"}` as long as the process is running. Never touches the database or PDNS. |
+| `GET` | `/health` | Readiness — verifies the database (`SELECT 1`) and the PDNS API (`GET /api/v1/servers/localhost`, 2s timeout). Returns `200 {"status":"healthy"}` when both are OK, `503 {"status":"unhealthy"}` otherwise. Per-check details are written to the application log, not the response body, to avoid leaking which backend is down to unauthenticated callers. Results are cached for 5 seconds per worker, and each client IP is limited to 30 requests per minute (429 on overflow). |
+
+Use `/ping` for container liveness probes; use `/health` for load-balancer readiness checks. Both endpoints are safe to expose publicly.
 
 ### Example requests
 
