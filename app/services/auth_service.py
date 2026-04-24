@@ -1,8 +1,19 @@
 import secrets
 from typing import Optional, Tuple
+from argon2 import PasswordHasher
+
 from app import db
 from app.models.api_key import ApiKey, ApiKeyIpAllowlist
 from app.utils.ip_utils import is_ip_in_allowlist
+
+
+# Sentinel hash gebruikt om timing te nivelleren wanneer er geen kandidaat is.
+# De waarde is irrelevant; het doel is ervoor te zorgen dat argon2id altijd
+# precies één verify-aanroep doet per auth-poging (CWE-208 defence-in-depth).
+_TIMING_DUMMY_HASH = PasswordHasher().hash("pda_live_timing_dummy")
+
+# Length of the key_prefix column — "pda_live_" (9) + first 4 hex chars.
+_PREFIX_LEN = 13
 
 
 class AuthService:
@@ -24,30 +35,51 @@ class AuthService:
     def validate_api_key(api_key: str, client_ip: str) -> Tuple[bool, Optional[ApiKey], str]:
         """
         Valideer API key en IP adres.
+
+        Gebruikt de opgeslagen `key_prefix` kolom voor een O(1) lookup in
+        plaats van een lineaire scan door alle actieve sleutels. Daardoor:
+          1. Verdwijnt de timing-side-channel die het totale aantal actieve
+             sleutels lekte (elke argon2id-verify duurt ~100ms).
+          2. Schaalt authenticatie niet langer lineair met het aantal keys.
+
+        Timing wordt aanvullend genivelleerd door ook bij een cache-miss een
+        argon2id-verify tegen een dummy-hash uit te voeren, zodat de paden
+        "geldig formaat maar onbekend" en "ongeldig formaat" niet meer
+        onderscheidbaar zijn.
+
         Returns: (is_valid, api_key_obj, error_message)
         """
         if not api_key:
             return False, None, "API key required"
 
-        key_obj = None
-        for candidate in ApiKey.query.filter_by(is_active=True).all():
+        key_prefix = api_key[:_PREFIX_LEN]
+        candidates = ApiKey.query.filter_by(
+            key_prefix=key_prefix, is_active=True
+        ).all()
+
+        matched: Optional[ApiKey] = None
+        for candidate in candidates:
             if ApiKey.verify_key(api_key, candidate.key_hash):
-                key_obj = candidate
+                matched = candidate
                 break
 
-        if not key_obj:
+        if matched is None:
+            # Equaliseer timing met het "candidate gevonden maar verkeerde
+            # hash" pad — altijd minstens één argon2id-verify uitvoeren.
+            if not candidates:
+                ApiKey.verify_key(api_key, _TIMING_DUMMY_HASH)
             return False, None, "Invalid API key"
 
         # IP check
         ip_entries = [
             {"ip_address": entry.ip_address, "cidr_mask": entry.cidr_mask}
-            for entry in key_obj.ip_allowlist.all()
+            for entry in matched.ip_allowlist.all()
         ]
 
         if not is_ip_in_allowlist(client_ip, ip_entries):
             return False, None, "IP address not allowed for this API key"
 
-        return True, key_obj, ""
+        return True, matched, ""
 
     @staticmethod
     def check_domain_access(account_id: int, zone_id: str) -> bool:

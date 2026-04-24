@@ -101,8 +101,9 @@ Client → [X-API-Key header] → proxy.py (before_request auth) → ProxyServic
 
 ## Key Design Decisions
 
-- **API keys** are stored only as SHA-256 hashes (`ApiKey.hash_key()`). The full key is shown exactly once at creation time (via flash message in UI, or JSON response in REST API).
-- **Key format:** `pda_live_<32 hex chars>`. Display prefix: `pda_live_<first 4 chars>` (13 chars total stored in `key_prefix`).
+- **API keys** are stored as argon2id hashes (`ApiKey.hash_key()` via `argon2-cffi`). The full key is shown exactly once at creation time (via flash message in UI, or JSON response in REST API).
+- **Key format:** `pda_live_<32 hex chars>`. Display prefix: `pda_live_<first 4 chars>` (13 chars total stored in `key_prefix`, indexed).
+- **Auth lookup is O(1):** `validate_api_key` extracts `key_prefix = api_key[:13]` and queries by that indexed column, so only the (typically one) candidate row runs argon2id. This eliminates both the timing side-channel that leaked the total active-key count and the linear scaling of authentication with key count. A dummy argon2id verify is always executed when no candidate matches, so "unknown prefix" and "known prefix with wrong hash" are indistinguishable from the outside.
 - **Account-based domain access:** Each API key has an `account_id` referencing a PowerDNS-Admin `account`. Domain access is checked by querying `PdnsDomain.account_id` — no separate allowlist table. `AuthService.check_domain_access(account_id, domain_id)` and `AuthService.get_allowed_domains(account_id)` implement this.
 - **IP allowlist:** Empty list means **no access** (all requests blocked). CIDR is supported (`cidr_mask` column, NULL = exact match). Logic is in `app/utils/ip_utils.py`.
 - **Domain filtering:** `GET /api/v1/zones` filters the PDNS response client-side using `get_allowed_domains()`. All other zone/record endpoints use `check_domain_access()` inline.

@@ -11,7 +11,7 @@ class ApiKey(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     key_hash = db.Column(db.String(255), unique=True, nullable=False)
-    key_prefix = db.Column(db.String(13), nullable=False)
+    key_prefix = db.Column(db.String(13), nullable=False, index=True)
     description = db.Column(db.String(255))
     account_id = db.Column(db.Integer, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
