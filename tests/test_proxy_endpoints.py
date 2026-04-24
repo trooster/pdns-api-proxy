@@ -123,3 +123,74 @@ def test_get_zone_allowed(client, api_key_with_zone):
 
     assert resp.status_code == 200
     assert resp.get_json()["id"] == "example.com."
+
+
+# ── Path traversal / authorization bypass regression tests ────────────────────
+# These cover a class of bugs where urllib3 normalised `..` segments in the
+# forwarded URL, letting a caller authorise against zone A but mutate zone B,
+# or bypass the blocked-sub-resource list.
+
+def test_subpath_traversal_cross_zone_rejected(client, api_key_with_zone):
+    """`../victim.test./rrsets` must not leak past authorisation."""
+    with patch("requests.request") as mock_req:
+        resp = client.get(
+            "/api/v1/servers/localhost/zones/example.com./../other.com./rrsets",
+            headers={"X-API-Key": api_key_with_zone},
+        )
+    assert resp.status_code == 400
+    assert mock_req.called is False
+
+
+def test_subpath_traversal_blocklist_bypass_rejected(client, api_key_with_zone):
+    """`rrsets/../cryptokeys` must not bypass the sub-resource allowlist."""
+    with patch("requests.request") as mock_req:
+        resp = client.get(
+            "/api/v1/servers/localhost/zones/example.com./rrsets/../cryptokeys",
+            headers={"X-API-Key": api_key_with_zone},
+        )
+    assert resp.status_code == 400
+    assert mock_req.called is False
+
+
+def test_subpath_traversal_to_statistics_rejected(client, api_key_with_zone):
+    """`../../statistics` must not reach a server-level endpoint."""
+    with patch("requests.request") as mock_req:
+        resp = client.get(
+            "/api/v1/servers/localhost/zones/example.com./../../statistics",
+            headers={"X-API-Key": api_key_with_zone},
+        )
+    assert resp.status_code == 400
+    assert mock_req.called is False
+
+
+def test_subresource_allowlist_blocks_cryptokeys(client, api_key_with_zone):
+    """A plain `cryptokeys` sub-resource is not in the allowlist (rrsets/export)."""
+    with patch("requests.request") as mock_req:
+        resp = client.get(
+            "/api/v1/servers/localhost/zones/example.com./cryptokeys",
+            headers={"X-API-Key": api_key_with_zone},
+        )
+    assert resp.status_code == 403
+    assert mock_req.called is False
+
+
+def test_subresource_allowlist_permits_rrsets(client, api_key_with_zone):
+    """`rrsets` is on the allowlist and should forward upstream."""
+    with patch("requests.request") as mock_req:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"rrsets": []}
+        mock_req.return_value = mock_resp
+
+        resp = client.get(
+            "/api/v1/servers/localhost/zones/example.com./rrsets",
+            headers={"X-API-Key": api_key_with_zone},
+        )
+
+    assert resp.status_code == 200
+    assert mock_req.called is True
+    # Upstream must receive the unmodified path for example.com. — not a
+    # different zone resulting from a `..` collapse.
+    sent_url = mock_req.call_args.kwargs["url"]
+    assert "/zones/example.com./rrsets" in sent_url
+    assert ".." not in sent_url

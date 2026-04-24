@@ -192,16 +192,15 @@ The proxy mirrors the PowerDNS REST API URL structure. Zone IDs are zone names w
 
 ### Zone sub-resources
 
-Zone sub-resources are proxied with the same access control applied to the parent zone. Administrative sub-resources are blocked:
+Zone sub-resources are proxied with the same access control applied to the parent zone. The proxy enforces an **allowlist**: only `rrsets` and `export` are forwarded. Any other sub-resource (`notify`, `rectify`, `metadata`, `cryptokeys`, and anything PDNS may add in the future) returns 403:
 
 | Method | Path | Description |
 |---|---|---|
 | `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/rrsets` | Manage RRsets (allowed) |
 | `GET` | `/api/v1/servers/<server_id>/zones/<zone_id>/export` | Export zone (allowed) |
-| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/notify` | **Blocked** — admin only |
-| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/rectify` | **Blocked** — admin only |
-| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/metadata` | **Blocked** — admin only |
-| `*` | `/api/v1/servers/<server_id>/zones/<zone_id>/cryptokeys` | **Blocked** — admin only |
+| `*` | anything else | **Blocked** — admin only |
+
+Path components are validated per segment; `.`, `..`, and empty segments are rejected with 400.
 
 ### Health
 
