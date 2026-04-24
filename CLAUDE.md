@@ -72,6 +72,8 @@ python migrate.py down N
 | `PDNS_API_KEY` | PowerDNS API key |
 | `SECRET_KEY` | Flask session secret |
 | `PROXY_COUNT` | Number of trusted reverse proxies in front of the app (default: `1`). Controls `X-Forwarded-For` trust via Werkzeug `ProxyFix`. Set to `0` if exposed directly. |
+| `SESSION_COOKIE_SECURE` | Default `true`. Set to `false` only for a local dev server without TLS (`http://127.0.0.1:5000`). |
+| `REMEMBER_COOKIE_SECURE` | Default `true`. Same semantics as `SESSION_COOKIE_SECURE`. |
 
 Tests use SQLite in-memory via a `TestConfig` class passed to `create_app()`.
 
